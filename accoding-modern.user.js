@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.3.2
+// @version      1.4.0
 // @description  本地界面美化、赛事统计看板、题面 Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @run-at       document-end
@@ -96,48 +96,55 @@ function mountContestBoard(Core) {
   const btn=(text,fn)=>{const b=make('button','',text);b.type='button';b.addEventListener('click',fn);return b;};
   const style=make('style','');
   style.textContent=`
-:host{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;color:#e6edf7;font-size:14px;line-height:1.5}
+:host{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;color:#e6edf7;font-size:clamp(16px,1.05vw,22px);line-height:1.5}
 *{box-sizing:border-box}button,select{font:inherit}button{cursor:pointer;color:inherit;background:#1a2942;border:1px solid #34445f;padding:8px 13px;border-radius:8px}button:hover{background:#253a59}button:disabled{opacity:.5;cursor:wait}button:focus-visible,select:focus-visible{outline:2px solid #63a7ff;outline-offset:3px}
 .launch{position:fixed;right:24px;bottom:24px;z-index:1040;background:#2458d3;color:#fff;border-color:#386ce4;padding:12px 19px;box-shadow:0 8px 26px #14264930}
 .overlay{position:fixed;inset:0;z-index:2147483000;background:#0a1120;overflow:auto;padding:24px 32px;display:flex;flex-direction:column;gap:16px;height:100dvh;min-height:0}.overlay[hidden],.launch[hidden],[hidden]{display:none!important}.overlay:fullscreen{width:100%;height:100%;}
-.head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.eyebrow{color:#8193b0;text-transform:uppercase;letter-spacing:2px;font-size:11px;margin-bottom:6px}h1{font-size:clamp(18px,2vw,30px);line-height:1.4;margin:0;font-weight:650;max-width:850px;overflow-wrap:anywhere}.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex-shrink:0}.sub{color:#94a4be;margin-top:8px;font-size:12px}
-.meta{display:flex;align-items:center;gap:22px;flex-wrap:wrap;color:#9aaac3;font-size:12px}.legend{display:flex;align-items:center;gap:8px}.dot{width:10px;height:10px;border-radius:3px;background:#50d6bc}.dot.total{background:#45606a;border:1px solid #719da9}.note{margin-left:auto}select{background:#14213a;color:#dce7f8;border:1px solid #34445f;border-radius:6px;padding:5px 8px}
-.message{color:#ffce8a;background:#30251c;border:1px solid #69512c;padding:10px 15px;border-radius:8px;font-size:13px}.message:empty{display:none}.summary{display:flex;gap:25px;color:#8294b1;font-size:12px}.summary strong{font-variant-numeric:tabular-nums;color:#eef3fc;font-size:20px;margin-right:5px}
-.chart-scroll{overflow:auto;position:relative;flex:1;min-height:220px}.chart{display:flex;position:relative;min-height:220px;height:100%;align-items:stretch;padding-top:32px}.column{position:relative;flex:1;min-width:78px;display:flex;flex-direction:column}.plot{position:relative;flex:1;min-height:70px;border-bottom:1px solid #7f8fa5;background:repeating-linear-gradient(to top,transparent 0,transparent calc(25% - 1px),#233049 calc(25% - 1px),#233049 25%)}
+.head{display:flex;align-items:center;justify-content:space-between;gap:20px}.eyebrow{color:#8193b0;text-transform:uppercase;letter-spacing:2px;font-size:14px;margin-bottom:8px}h1{font-size:clamp(24px,2vw,40px);line-height:1.4;margin:0;font-weight:650;overflow-wrap:anywhere}.title-area{flex:1;min-width:0}.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex-shrink:0}.sub{color:#a8b7cf;margin-top:8px;font-size:clamp(14px,.95vw,19px)}
+.meta{display:flex;align-items:center;gap:18px;flex-wrap:wrap;color:#b5c3d9;font-size:inherit;padding:14px 0;border-top:1px solid #243147;border-bottom:1px solid #243147}.meta .actions{margin-left:auto}.legend{display:flex;align-items:center;gap:8px}.dot{width:15px;height:15px;border-radius:3px;background:#50d6bc}.dot.total{background:#45606a;border:1px solid #719da9}.note{color:#a8b7cf;font-size:clamp(14px,.95vw,19px)}select{background:#14213a;color:#dce7f8;border:1px solid #34445f;border-radius:6px;padding:5px 8px}
+.message{color:#ffce8a;background:#30251c;border:1px solid #69512c;padding:10px 15px;border-radius:8px;font-size:18px}.message:empty{display:none}.summary{display:flex;gap:25px;flex-wrap:wrap;color:#a8b7cf;font-size:clamp(16px,1.05vw,22px);margin-top:14px}.summary strong{font-variant-numeric:tabular-nums;color:#eef3fc;font-size:clamp(24px,1.8vw,36px);margin-right:8px}
+.chart-scroll{overflow:auto;position:relative;flex:1;min-height:220px}.chart{display:flex;position:relative;min-height:220px;height:100%;align-items:stretch;padding-top:50px}.column{position:relative;flex:1;min-width:108px;display:flex;flex-direction:column}.plot{position:relative;flex:1;min-height:70px;border-bottom:1px solid #7f8fa5;background:repeating-linear-gradient(to top,transparent 0,transparent calc(25% - 1px),#233049 calc(25% - 1px),#233049 25%)}
 .bar{position:absolute;bottom:0;left:26%;width:53%;height:var(--height);background:var(--color);opacity:.21;border:1px solid var(--color);border-bottom:0;transition:height .5s ease}.bar.ac{left:12%;width:54%;opacity:1;background:linear-gradient(180deg,var(--color),color-mix(in srgb,var(--color),#000 16%));border:0;box-shadow:0 0 28px color-mix(in srgb,var(--color),transparent 90%)}
-.delta{position:absolute;z-index:2;top:8px;left:0;right:0;text-align:center;color:#a2efbf;font-size:14px;font-weight:650;pointer-events:none;animation:am-rise 3s ease-out forwards}@keyframes am-rise{0%{opacity:0;transform:translateY(12px)}15%{opacity:1}75%{opacity:1}100%{opacity:0;transform:translateY(-18px)}}\n.value{position:absolute;bottom:calc(var(--height) + 7px);left:0;right:0;text-align:center;font-size:clamp(16px,2.2vw,36px);font-weight:650;color:var(--color);font-variant-numeric:tabular-nums;text-shadow:0 1px 9px #000;line-height:1.1;transition:bottom .5s ease}.numbers{text-align:center;border-right:1px solid #253149;padding:12px 5px;background:color-mix(in srgb,var(--color),#0a1120 94%);font-variant-numeric:tabular-nums}.label{font-size:30px;color:var(--color);font-weight:700}.accepted{color:#70e3af;font-size:21px;font-weight:650}.attempted{color:#f4cc75;font-size:18px}.problem-title{color:#8e9eba;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px;margin:7px auto 0;padding:0 6px}.no-data{margin:auto;text-align:center;padding:70px 20px;color:#8e9eba;font-size:17px}
-.foot{border-top:1px solid #243147;padding-top:16px;display:flex;justify-content:space-between;align-items:center;gap:18px}.phase{font-size:clamp(24px,3vw,44px);letter-spacing:-.5px;color:#f2c96e;font-weight:650}.phase[data-phase=running]{color:#61dbb1}.phase[data-phase=upcoming]{color:#8bb8ff}.clock{text-align:right}.timer{font-size:clamp(24px,3vw,42px);font-variant-numeric:tabular-nums;letter-spacing:2px;color:#edf3fd}.clock small{color:#8c9cba}.privacy{font-size:11px;color:#7e91ae;margin:0}.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-.head,.meta,.summary,.foot,.privacy,.message{flex-shrink:0}
-@media(max-width:700px){.overlay{padding:18px 14px;gap:14px}.head{flex-direction:column}.actions{gap:6px}.actions button{padding:7px 9px}.note{margin-left:0}.meta{gap:12px}.foot{align-items:flex-end}.summary{gap:15px}.launch{right:16px;bottom:16px}}
+.delta{position:absolute;z-index:2;top:8px;left:0;right:0;text-align:center;color:#a2efbf;font-size:22px;font-weight:650;pointer-events:none;animation:am-rise 3s ease-out forwards}@keyframes am-rise{0%{opacity:0;transform:translateY(12px)}15%{opacity:1}75%{opacity:1}100%{opacity:0;transform:translateY(-18px)}}\n.value{position:absolute;bottom:calc(var(--height) + 7px);left:0;right:0;text-align:center;font-size:clamp(30px,2.8vw,56px);font-weight:650;color:var(--color);font-variant-numeric:tabular-nums;text-shadow:0 1px 9px #000;line-height:1.1;transition:bottom .5s ease}.numbers{text-align:center;border-right:1px solid #253149;padding:10px 5px;background:color-mix(in srgb,var(--color),#0a1120 94%);font-variant-numeric:tabular-nums}.label{font-size:clamp(36px,2.6vw,52px);color:var(--color);font-weight:700}.accepted{color:#70e3af;font-size:clamp(28px,2.2vw,44px);font-weight:700}.attempted{color:#f4cc75;font-size:clamp(26px,1.9vw,38px);font-weight:600}.problem-title{color:#acbad1;font-size:clamp(14px,.95vw,19px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px;margin:7px auto 0;padding:0 6px}.no-data{margin:auto;text-align:center;padding:70px 20px;color:#8e9eba;font-size:17px}
+.status-card{display:flex;align-items:center;justify-content:space-between;gap:28px;flex-shrink:0;padding:20px 26px;border:1px solid #2c4162;border-radius:16px;background:#111f35;min-width:440px}.phase{font-size:clamp(26px,1.8vw,36px);color:#f2c96e;font-weight:700;white-space:nowrap}.phase[data-phase=running]{color:#61dbb1}.phase[data-phase=upcoming]{color:#8bb8ff}.clock{text-align:right}.timer{font-size:clamp(36px,3vw,60px);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:1px;color:#edf3fd;line-height:1.2}.clock small{display:block;color:#b6c5df;font-size:clamp(14px,.95vw,19px);white-space:nowrap;margin-bottom:6px}.privacy{font-size:clamp(13px,.9vw,18px);color:#9eafca;margin:0}.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.head,.meta,.privacy,.message{flex-shrink:0}
+.waiting{flex:1;min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:16px;color:#a8b7cf;background:radial-gradient(ellipse at center,#152a493d,transparent 65%)}.waiting h2{font-size:clamp(32px,3vw,60px);font-weight:650;letter-spacing:3px;color:#d9e7fc;margin:0}.waiting p{font-size:clamp(18px,1.4vw,28px);margin:0}
+@media(max-width:1100px){.head{align-items:stretch;flex-wrap:wrap}.status-card{min-width:360px}.meta .actions{margin-left:0}.note{width:100%}}
+@media(max-width:700px){.overlay{padding:18px 14px;gap:14px}.head{flex-direction:column}.actions{gap:6px}.actions button{padding:7px 9px}.note{margin-left:0}.meta{gap:12px}.status-card{min-width:0;width:100%;padding:14px;gap:12px}.clock small{white-space:normal}.timer{font-size:34px}.phase{font-size:24px}.summary{gap:15px}.launch{right:16px;bottom:16px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 `;
   root.append(style);
   const currentId=()=> location.pathname.match(/^\/contest\/(\d+)(?:\/|$)/)?.[1] || (/^\/contest-ng\//.test(location.pathname) ? location.hash.match(/^#\/(\d+)(?:\/|$)/)?.[1] : null);
   const launch=btn('▥ 赛事统计看板',()=>{const id=currentId();if(id)open(id);});launch.className='launch';
   const overlay=make('section','overlay');overlay.hidden=true;overlay.tabIndex=-1;overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label','赛事统计看板');
-  const head=make('div','head'),titleArea=make('div','');
+  const head=make('div','head'),titleArea=make('div','title-area');
   const heading=make('h1','','赛事统计看板'),subtitle=make('div','sub');
   titleArea.append(make('div','eyebrow','ACCODING / CONTEST BOARD'),heading,subtitle);
   const actions=make('div','actions');
   const refreshButton=btn('立即刷新',()=>refresh());
   const pauseButton=btn('暂停刷新',()=>{paused=!paused;pauseButton.textContent=paused?'恢复刷新':'暂停刷新';schedule();if(!paused)refresh();updateNote();});
   const fullscreenButton=btn('全屏',async()=>{try{if(document.fullscreenElement===host || root.fullscreenElement===overlay)await document.exitFullscreen();else await overlay.requestFullscreen();}catch{message.textContent='浏览器暂不允许全屏；当前看板已铺满页面，可使用浏览器全屏功能。';}});
-  const closeButton=btn('关闭 ×',()=>close());actions.append(refreshButton,pauseButton,fullscreenButton,closeButton);head.append(titleArea,actions);
+  const closeButton=btn('关闭 ×',()=>close());actions.append(refreshButton,pauseButton,fullscreenButton,closeButton);head.append(titleArea);
   const meta=make('div','meta');
   for(const [cls,text] of [['','前柱：通过人数'],['total','后柱：尝试人数']]){const item=make('span','legend');item.append(make('i','dot '+cls),document.createTextNode(text));meta.append(item);}
   const intervalLabel=make('label','','刷新间隔 '),interval=make('select','');interval.setAttribute('aria-label','刷新间隔');
-  for(const seconds of [15,30,60]){const option=make('option','',seconds+' 秒');option.value=String(seconds);interval.append(option);}interval.value='30';interval.addEventListener('change',()=>{schedule();updateNote();});intervalLabel.append(interval);meta.append(intervalLabel);
-  const note=make('span','note');meta.append(note);
+  for(const seconds of [1,2,5,15,30,60]){const option=make('option','',seconds+' 秒');option.value=String(seconds);interval.append(option);}interval.value='5';interval.addEventListener('change',()=>{schedule();updateNote();});intervalLabel.append(interval);meta.append(intervalLabel);
+  const note=make('span','note');meta.append(actions);
   const message=make('div','message');message.setAttribute('role','status');
-  const summary=make('div','summary');
+  const summary=make('div','summary');titleArea.append(summary);
   const chartScroll=make('div','chart-scroll'),chart=make('div','chart');chart.setAttribute('role','img');chartScroll.append(chart);
-  const foot=make('div','foot'),status=make('div','phase'),clockArea=make('div','clock'),caption=make('small',''),timer=make('div','timer');clockArea.append(caption,timer);foot.append(status,clockArea);
+  const waiting=make('div','waiting');waiting.hidden=true;waiting.append(make('h2','','等待开赛'),make('p','','开赛后显示各题通过人数与尝试人数'));
+  const statusCard=make('div','status-card'),status=make('div','phase'),clockArea=make('div','clock'),caption=make('small',''),timer=make('div','timer');clockArea.append(caption,timer);statusCard.append(status,clockArea);head.append(statusCard);
   const privacy=make('p','privacy','数据以当前账号可见的排行榜为准；同一人同一题只计一次。封榜、权限及榜单更新延迟可能影响统计。');
-  overlay.append(head,meta,message,summary,chartScroll,foot,privacy);root.append(launch,overlay);document.body.append(host);
+  const footer=make('div','meta');footer.style.cssText='border:0;padding:0;justify-content:space-between;gap:8px';footer.append(privacy,note);overlay.append(head,meta,message,waiting,chartScroll,footer);root.append(launch,overlay);document.body.append(host);
   let activeId=null,contest=null,data=null,clockOffset=0,clockSynced=false,lastSuccess=null,paused=false,poll=null,tick=null,controller=null,sequence=0,previousFocus=null,oldOverflow='',columns=[],chartSignature='',loadFailed=false;
   const formatDate=ms=>new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',dateStyle:'short',timeStyle:'medium',hour12:false}).format(new Date(ms));
   const updateNote=()=>{note.textContent=(paused?'已暂停':document.hidden?'后台暂停':`每 ${interval.value} 秒刷新`)+(lastSuccess?' · 更新于 '+new Date(lastSuccess).toLocaleTimeString('zh-CN',{hour12:false}):' · 尚未读取数据');};
   function updateClock(){
+    const upcoming=!!contest && Core.phase(contest,Date.now()+clockOffset).key==='upcoming';
+    // Hide the entire chart immediately: bar transitions must never leak into pre-start view.
+    waiting.hidden=!upcoming;chartScroll.hidden=upcoming;summary.hidden=upcoming||!data;
+    for(const legend of meta.querySelectorAll('.legend'))legend.hidden=upcoming;
     updateNote();if(!contest){status.textContent=loadFailed?'数据暂不可用':'正在读取赛事';caption.textContent='';timer.textContent='—';return;}
     const p=Core.phase(contest,Date.now()+clockOffset);status.textContent=p.text;status.dataset.phase=p.key;
     caption.textContent=p.caption+(clockSynced?' · 服务器时间':' · 本机时间（未校准）');timer.textContent=p.key==='finished'?'':Core.duration(p.remaining);
