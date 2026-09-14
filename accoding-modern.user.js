@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.3.0
+// @version      1.3.1
 // @description  本地界面美化、赛事统计看板、题面 Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @run-at       document-end
@@ -823,4 +823,69 @@ function mountBackNavigation() {
 }
 
 mountBackNavigation();
+function createTestdataCore() {
+  function inspect(rows) {
+    const refs=new Map(), errors=[], warnings=[];
+    rows.forEach((row,index)=>{
+      for(const name of [row.originalInput,row.originalOutput])if(name){const uses=refs.get(name)||[];uses.push(index);refs.set(name,uses);}
+    });
+    for(const [name,uses] of refs){
+      if(uses.length>1){
+        const message=`已有文件 ${name} 被重复引用（测试点 ${[...new Set(uses)].map(i=>i+1).join('、')}）。`;
+        warnings.push(message);
+        if(uses.some(i=>rows[i].deleted))errors.push(message+' 当前后端可能重复删除文件或损坏保留的测试点，已阻止保存；需要服务端修复删除逻辑。');
+      }
+    }
+    const uploads=new Set();
+    rows.forEach((row,index)=>{
+      const names=[row.inputUpload,row.outputUpload];
+      if(!row.originalInput&&!row.originalOutput&&!row.deleted&&(!names[0]||!names[1]))errors.push(`测试点 ${index+1} 缺少输入或答案文件。`);
+      for(const name of names){
+        if(!name)continue;
+        if(refs.has(name))errors.push(`新文件 ${name} 与已有文件重名；即使旧点标记删除，也不能在同一次保存中覆盖。`);
+        if(uploads.has(name))errors.push(`本次上传重复使用文件名 ${name}；输入和答案也必须使用不同文件名。`);
+        uploads.add(name);
+      }
+    });
+    return {errors:[...new Set(errors)],warnings};
+  }
+  return {inspect};
+}
+
+function mountTestdataGuard(Core) {
+  const container=document.getElementById('test_data'),form=container?.closest('form');
+  if(!form||document.getElementById('am-testdata-guard'))return;
+  const panel=document.createElement('section');panel.id='am-testdata-guard';panel.tabIndex=-1;
+  const title=document.createElement('strong');title.textContent='测试点保存检查';
+  const status=document.createElement('p');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+  const button=document.createElement('button');button.type='button';button.textContent='检查文件名';button.addEventListener('click',()=>check(false));
+  panel.append(title,status,button);(document.getElementById('am-batch-upload')||container).before(panel);
+  const style=document.createElement('style');style.textContent=`#am-testdata-guard{padding:14px 16px;margin:14px 0;background:#f5f8fc;border:1px solid #d4dfeb;border-radius:10px;color:#344258;font:13px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}#am-testdata-guard p{white-space:pre-line;margin:7px 0;overflow-wrap:anywhere}#am-testdata-guard[data-level=error],#am-testdata-guard[data-level=warning]{background:#fff8eb;border-color:#e7cfa5;color:#825122}#am-testdata-guard button{font:inherit;border:1px solid #c4d1e1;border-radius:6px;padding:5px 10px;background:#fff;color:#315886;cursor:pointer}`;document.head.append(style);
+  const rows=()=>[...container.querySelectorAll('input[name=input]')].map(input=>{
+    const index=input.id.match(/(\d+)$/)?.[1],output=document.getElementById('input_file_out'+index);
+    return {originalInput:input.getAttribute('value')||'',originalOutput:output?.getAttribute('value')||'',inputUpload:input.files[0]?.name||'',outputUpload:output?.files[0]?.name||'',deleted:document.getElementById('delete-or-not'+index)?.value==='1'};
+  });
+  function check(reveal=true) {
+    const result=Core.inspect(rows());
+    panel.dataset.level=result.errors.length?'error':result.warnings.length?'warning':'ok';
+    status.textContent=result.errors.length?result.errors.join('\n'):result.warnings.length?result.warnings.join('\n')+'\n可保存其他字段；删除这些记录需要后端修复。检查无法判断文件内容是否已被覆盖或丢失。':'文件名检查通过。保存时将检查所有手动与批量选择的测试点。';
+    if(result.errors.length&&reveal){
+      const modal=panel.closest('.modal');
+      if(modal&&window.jQuery?.fn.modal){window.jQuery(modal).one('shown.bs.modal',()=>{panel.scrollIntoView({block:'center'});panel.focus({preventScroll:true});}).modal('show');}
+      else{panel.scrollIntoView({block:'center'});panel.focus({preventScroll:true});}
+    }
+    return !result.errors.length;
+  }
+  const originalSave=window.submit_information;
+  if(typeof originalSave==='function')window.submit_information=function(){if(check())return originalSave.apply(this,arguments);return false;};
+  const originalOnsubmit=form.onsubmit;
+  form.onsubmit=function(event){if(!check())return false;return originalOnsubmit?.call(this,event);};
+  const originalSubmit=form.submit;
+  if(typeof originalSubmit==='function')form.submit=function(){if(check())return originalSubmit.apply(this,arguments);};
+  form.addEventListener('submit',event=>{if(!check()){event.preventDefault();event.stopImmediatePropagation();}},true);
+  container.addEventListener('change',()=>check(false));
+  check(false);
+}
+
+mountTestdataGuard(createTestdataCore());
 })();

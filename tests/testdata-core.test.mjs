@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createTestdataCore} from '../src/testdata-core.mjs';
+import {deletionPlan,removeFilesOnce} from '../patches/backend-test-file-deletion.mjs';
+const C=createTestdataCore();
+test('warns on an existing shared filename; blocks unsafe deletion, permits other edits',()=>{const row={originalInput:'1.txt',originalOutput:'1.txt',deleted:false};assert.equal(C.inspect([row]).errors.length,0);assert.equal(C.inspect([row]).warnings.length,1);assert.ok(C.inspect([{...row,deleted:true}]).errors.length);});
+test('manual input/output names, overwrite-after-delete, and missing pairs are checked',()=>{assert.ok(C.inspect([{inputUpload:'1.txt',outputUpload:'1.txt'}]).errors.length);assert.ok(C.inspect([{originalInput:'a.in',originalOutput:'a.out',deleted:true},{inputUpload:'a.in',outputUpload:'b.out'}]).errors.length);assert.ok(C.inspect([{inputUpload:'a.in'}]).errors.length);assert.equal(C.inspect([{inputUpload:'a.in',outputUpload:'a.out'}]).errors.length,0);});
+test('shared references across rows cannot be deleted underneath a retained row',()=>{const rows=[{originalInput:'a.in',originalOutput:'a.out',deleted:true},{originalInput:'a.in',originalOutput:'b.out'}];assert.ok(C.inspect(rows).errors.length);});
+test('backend plan deduplicates names and preserves files still referenced',()=>{const p=deletionPlan([{input:'x.txt',output:'x.txt'},{input:'a.in',output:'a.out'},{input:'a.in',output:'b.out'}],[0,1]);assert.deepEqual(p.filenames,['x.txt','a.out']);assert.equal(p.retained.length,1);});
+test('backend missing or already removed files are idempotent; real I/O errors surface',async()=>{const called=[];await removeFilesOnce('/tmp/oj-test',['x.txt','x.txt'],async p=>{called.push(p);throw Object.assign(new Error('missing'),{code:'ENOENT'});});assert.equal(called.length,1);await assert.rejects(removeFilesOnce('/tmp/oj-test',['x.txt'],async()=>{throw Object.assign(new Error('denied'),{code:'EACCES'});}));});
+test('backend validates all paths before deleting anything',async()=>{let calls=0;await assert.rejects(removeFilesOnce('/tmp/oj-test',['a.in','../unsafe'],async()=>{calls++;}));assert.equal(calls,0);});
