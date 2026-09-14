@@ -68,5 +68,53 @@ export function createContestCore() {
     const unit = Math.pow(10,Math.floor(Math.log10(max)));
     return Math.ceil(max / unit) * unit;
   }
-  return {decode,time,letters,normalizeContest,aggregateRank,phase,duration,scale};
+  function rankSnapshot(raw, problems) {
+    const rows=decode(raw), stats=aggregateRank(rows,problems), records=new Map();
+    const keys=new Map(problems.map(p=>[p.rankKey,p.id]));
+    let reliable=true;
+    for(const row of rows) {
+      const user=row.user?.id;
+      if(user===undefined||user===null||String(user)===''){reliable=false;continue;}
+      for(const [key,detail]of Object.entries(row.detail)) {
+        if(!detail||!keys.has(key))continue;
+        const id=JSON.stringify([String(user),keys.get(key)]);
+        if(records.has(id)){reliable=false;continue;}
+        const wrong=Number(detail.wrong_count??0);
+        if(!Number.isSafeInteger(wrong)||wrong<0){reliable=false;continue;}
+        const failed=['WA','CE','RE','TLE','MLE','OLE','PE','SE'].includes(detail.result);
+        records.set(id,{problemId:keys.get(key),accepted:detail.result==='AC'?1:0,failures:wrong+(failed?1:0)});
+      }
+    }
+    return {stats,records,reliable};
+  }
+  function rankEvents(previous,next) {
+    const events=[];
+    if(!previous||!previous.reliable||!next.reliable)return {reset:true,events};
+    // Rejudging / rank corrections reset to authoritative counts instead of inventing events.
+    for(const [id,old]of previous.records) {
+      const now=next.records.get(id);
+      if(!now||now.accepted<old.accepted||now.failures<old.failures)return {reset:true,events:[]};
+    }
+    for(const [id,now]of next.records) {
+      const old=previous.records.get(id), failures=now.failures-(old?.failures||0);
+      let total=old?0:1;
+      if(events.length+failures>10000)return {reset:true,events:[]};
+      for(let i=0;i<failures;i++){events.push({problemId:now.problemId,kind:'failed',accepted:0,total});total=0;}
+      if(now.accepted>(old?.accepted||0)){events.push({problemId:now.problemId,kind:'accepted',accepted:1,total});total=0;}
+      if(total)events.push({problemId:now.problemId,kind:'attempt',accepted:0,total:1});
+    }
+    return {reset:false,events};
+  }
+  function unitBursts(count, intervalMs, random=Math.random) {
+    if(!Number.isSafeInteger(count)||count<=0)return [];
+    const span=Math.max(1000,Math.min(15000,Number(intervalMs)||5000));
+    return Array.from({length:count},(_,i)=>({delay:(i+.15+random()*.7)*span/count,left:18+random()*64}));
+  }
+  function unitSymbol(kind) {
+    // Pending / neutral attempts and unknown event kinds must never imply a failed verdict.
+    if(kind==='accepted')return '+1';
+    if(kind==='failed')return '-';
+    return '';
+  }
+  return {decode,time,letters,normalizeContest,aggregateRank,phase,duration,scale,rankSnapshot,rankEvents,unitBursts,unitSymbol};
 }
