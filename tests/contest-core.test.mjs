@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createContestCore} from '../src/contest-core.mjs';
+const C=createContestCore();
+const fixture=()=>({id:42,title:'示例赛',start_time:'2030-01-01T10:00:00Z',end_time:'2030-01-01T12:00:00Z',problems:[{id:7,title:'第二题',contest_problem_list:{order:1}},{id:9,title:'第一题',contest_problem_list:{order:0}}]});
+test('uses contest order rather than global problem ID or response order',()=>{const c=C.normalizeContest(fixture());assert.deepEqual(c.problems.map(p=>[p.id,p.label]),[['9','A'],['7','B']]);});
+test('counts people per problem; wrong attempts never inflate attempted people',()=>{const c=C.normalizeContest(fixture());const rows=[{detail:{A:{result:'AC',wrong_count:8},B:{result:'WA',wrong_count:6}}},{detail:{A:{result:'WA',wrong_count:0},B:{result:'AC',wrong_count:1}}},{detail:{A:{result:'AC'},C:{result:'AC'}}}];const stats=C.aggregateRank(JSON.stringify(JSON.stringify(rows)),c.problems);assert.deepEqual(stats.map(p=>[p.accepted,p.total]),[[2,3],[1,2]]);});
+test('valid empty rank is zero, invalid or denied response is never zero',()=>{const c=C.normalizeContest(fixture());assert.deepEqual(C.aggregateRank('[]',c.problems).map(p=>p.total),[0,0]);for(const bad of [{error:'denied'},null,[{detail:null}],'<html>login</html>'])assert.throws(()=>C.aggregateRank(bad,c.problems));});
+test('start is inclusive; end is exclusive; same model supports all three phases',()=>{const c=C.normalizeContest(fixture());assert.equal(C.phase(c,c.start-1).key,'upcoming');assert.equal(C.phase(c,c.start).key,'running');assert.equal(C.phase(c,c.end-1).key,'running');assert.equal(C.phase(c,c.end).key,'finished');});
+test('invalid schedule and problem mapping fail explicitly',()=>{const c=fixture();assert.throws(()=>C.normalizeContest({...c,end_time:c.start_time}));assert.throws(()=>C.normalizeContest({...c,start_time:null}));assert.throws(()=>C.normalizeContest({...c,problems:[c.problems[0],c.problems[0]]}));});
+test('legacy time uses Beijing timezone; durations handle more than one day',()=>{assert.equal(C.time('2030-01-01 18:00:00'),Date.parse('2030-01-01T10:00:00Z'));assert.equal(C.duration(90061000),'25:01:01');assert.equal(C.duration(-1),'00:00:00');assert.equal(C.duration(1),'00:00:01');});
+test('zero-count chart has a finite scale; large counts remain within scale',()=>{assert.equal(C.scale([]),1);assert.equal(C.scale([{total:0}]),1);assert.equal(C.scale([{total:1598}]),2000);});
+test('labels beyond Z remain distinct',()=>{assert.equal(C.letters(25),'Z');assert.equal(C.letters(26),'AA');assert.equal(C.letters(52),'BA');});

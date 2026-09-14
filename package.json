@@ -1,0 +1,8 @@
+{
+  "name": "accoding-modern",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node scripts/build.mjs", "test": "node --test tests/*.test.mjs", "check": "npm run build && node --check accoding-modern.user.js && npm test" },
+  "engines": { "node": ">=18" }
+}
