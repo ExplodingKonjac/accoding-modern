@@ -31,6 +31,8 @@
 
 侧边导航、浅灰背景与白色内容卡片、蓝色操作按钮、题目正文与操作栏布局、编辑区及表单优化。列表新增当前页搜索与行高切换，窄窗口支持表格横向滚动。
 
+**1.1.1 补齐赛时 Angular 页面**：`contest-ng` 的简介、题目、排名、提交和回复公告页面使用独立主题，包含比赛导航、倒计时卡片、题面、表格与筛选控件。支持初次异步加载和站内 hash 路由切换，无需每次刷新。排行榜筛选、题目切换及其他 Angular 绑定保留。
+
 页面右上角 **恢复原版** 临时停用通用美化；点击 **启用新版界面** 可恢复。赛事看板是独立工具，仍可使用。要停用全部功能，在篡改猴管理面板中关闭本脚本并刷新。
 
 ## 本地开发
@@ -41,7 +43,7 @@ Node.js 18 或更高版本，无第三方依赖。
 npm run check
 ```
 
-修改 `src/theme.js`、`src/contest-core.mjs` 或 `src/contest-board.js`，再执行 `npm run build` 生成根目录的 `accoding-modern.user.js`。不要直接修改构建产物。版本及安装地址位于 `scripts/build.mjs`。
+修改 `src/theme.js`（管理页）、`src/contest-theme.js`（赛时页）、`src/contest-core.mjs` 或 `src/contest-board.js`，再执行 `npm run build` 生成根目录的 `accoding-modern.user.js`。不要直接修改构建产物。版本及安装地址位于 `scripts/build.mjs`。
 
 如需通过本机临时服务安装：在仓库目录运行 `python3 -m http.server 18764 --bind 127.0.0.1`，用浏览器打开 `http://127.0.0.1:18764/accoding-modern.user.js` 并确认安装，随后关闭服务即可。安装副本与磁盘源码独立，改源码后需要重新构建、更新已安装脚本并刷新网站。
 
