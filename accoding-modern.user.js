@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.1.1
-// @description  本地界面美化与赛事统计投屏看板，保留原站登录和操作。
+// @version      1.2.0
+// @description  本地界面美化、赛事统计看板与题面 Markdown 兼容编辑，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @run-at       document-end
 // @grant        none
@@ -62,7 +62,9 @@ function createContestCore() {
       for (const [key,detail] of Object.entries(row.detail)) {
         const p = keys.get(key);
         if (!p) continue;
-        if (!detail || typeof detail.result !== 'string') throw new Error('排行榜结果格式不匹配');
+        // A missing detail means no attempt; a pending result still represents an attempt.
+        if (detail == null) continue;
+        if (typeof detail !== 'object' || Array.isArray(detail) || (detail.result != null && typeof detail.result !== 'string')) throw new Error('排行榜结果格式不匹配');
         p.total++;
         if (detail.result === 'AC') p.accepted++;
       }
@@ -103,7 +105,7 @@ function mountContestBoard(Core) {
 .message{color:#ffce8a;background:#30251c;border:1px solid #69512c;padding:10px 15px;border-radius:8px;font-size:13px}.message:empty{display:none}.summary{display:flex;gap:25px;color:#8294b1;font-size:12px}.summary strong{font-variant-numeric:tabular-nums;color:#eef3fc;font-size:20px;margin-right:5px}
 .chart-scroll{overflow:auto;position:relative;flex:1;min-height:220px}.chart{display:flex;position:relative;min-height:220px;height:100%;align-items:stretch;padding-top:32px}.column{position:relative;flex:1;min-width:78px;display:flex;flex-direction:column}.plot{position:relative;flex:1;min-height:70px;border-bottom:1px solid #7f8fa5;background:repeating-linear-gradient(to top,transparent 0,transparent calc(25% - 1px),#233049 calc(25% - 1px),#233049 25%)}
 .bar{position:absolute;bottom:0;left:26%;width:53%;height:var(--height);background:var(--color);opacity:.21;border:1px solid var(--color);border-bottom:0;transition:height .5s ease}.bar.ac{left:12%;width:54%;opacity:1;background:linear-gradient(180deg,var(--color),color-mix(in srgb,var(--color),#000 16%));border:0;box-shadow:0 0 28px color-mix(in srgb,var(--color),transparent 90%)}
-.value{position:absolute;bottom:calc(var(--height) + 7px);left:0;right:0;text-align:center;font-size:clamp(16px,2.2vw,36px);font-weight:650;color:var(--color);font-variant-numeric:tabular-nums;text-shadow:0 1px 9px #000;line-height:1.1;transition:bottom .5s ease}.numbers{text-align:center;border-right:1px solid #253149;padding:12px 5px;background:color-mix(in srgb,var(--color),#0a1120 94%);font-variant-numeric:tabular-nums}.label{font-size:30px;color:var(--color);font-weight:700}.accepted{color:#70e3af;font-size:21px;font-weight:650}.attempted{color:#f4cc75;font-size:18px}.problem-title{color:#8e9eba;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px;margin:7px auto 0;padding:0 6px}.no-data{margin:auto;text-align:center;padding:70px 20px;color:#8e9eba;font-size:17px}
+.delta{position:absolute;z-index:2;top:8px;left:0;right:0;text-align:center;color:#a2efbf;font-size:14px;font-weight:650;pointer-events:none;animation:am-rise 3s ease-out forwards}@keyframes am-rise{0%{opacity:0;transform:translateY(12px)}15%{opacity:1}75%{opacity:1}100%{opacity:0;transform:translateY(-18px)}}\n.value{position:absolute;bottom:calc(var(--height) + 7px);left:0;right:0;text-align:center;font-size:clamp(16px,2.2vw,36px);font-weight:650;color:var(--color);font-variant-numeric:tabular-nums;text-shadow:0 1px 9px #000;line-height:1.1;transition:bottom .5s ease}.numbers{text-align:center;border-right:1px solid #253149;padding:12px 5px;background:color-mix(in srgb,var(--color),#0a1120 94%);font-variant-numeric:tabular-nums}.label{font-size:30px;color:var(--color);font-weight:700}.accepted{color:#70e3af;font-size:21px;font-weight:650}.attempted{color:#f4cc75;font-size:18px}.problem-title{color:#8e9eba;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px;margin:7px auto 0;padding:0 6px}.no-data{margin:auto;text-align:center;padding:70px 20px;color:#8e9eba;font-size:17px}
 .foot{border-top:1px solid #243147;padding-top:16px;display:flex;justify-content:space-between;align-items:center;gap:18px}.phase{font-size:clamp(24px,3vw,44px);letter-spacing:-.5px;color:#f2c96e;font-weight:650}.phase[data-phase=running]{color:#61dbb1}.phase[data-phase=upcoming]{color:#8bb8ff}.clock{text-align:right}.timer{font-size:clamp(24px,3vw,42px);font-variant-numeric:tabular-nums;letter-spacing:2px;color:#edf3fd}.clock small{color:#8c9cba}.privacy{font-size:11px;color:#7e91ae;margin:0}.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .head,.meta,.summary,.foot,.privacy,.message{flex-shrink:0}
 @media(max-width:700px){.overlay{padding:18px 14px;gap:14px}.head{flex-direction:column}.actions{gap:6px}.actions button{padding:7px 9px}.note{margin-left:0}.meta{gap:12px}.foot{align-items:flex-end}.summary{gap:15px}.launch{right:16px;bottom:16px}}
@@ -152,11 +154,18 @@ function mountContestBoard(Core) {
         const p=data[i],column=make('div','column');column.style.setProperty('--color',colors[i%colors.length]);
         const plot=make('div','plot'),total=make('div','bar'),ac=make('div','bar ac'),value=make('div','value');plot.append(total,ac,value);
         const numbers=make('div','numbers'),accepted=make('div','accepted'),attempted=make('div','attempted'),title=make('div','problem-title',p.title);title.title=p.title;
-        numbers.append(make('div','label',p.label),accepted,attempted,title);column.append(plot,numbers);chart.append(column);columns.push({total,ac,value,accepted,attempted,column});
+        numbers.append(make('div','label',p.label),accepted,attempted,title);column.append(plot,numbers);chart.append(column);columns.push({total,ac,value,accepted,attempted,column,plot,lastAccepted:null});
       }
     }
     const max=Core.scale(data);
-    data.forEach((p,i)=>{const c=columns[i];c.total.style.setProperty('--height',p.total/max*88+'%');c.ac.style.setProperty('--height',p.accepted/max*88+'%');c.value.style.setProperty('--height',p.accepted/max*88+'%');c.value.textContent=p.accepted;c.accepted.textContent=p.accepted;c.attempted.textContent=p.total;c.column.title=`${p.label} · ${p.title}\n通过 ${p.accepted} 人 / 尝试 ${p.total} 人`;});
+    data.forEach((p,i)=>{const c=columns[i];
+      c.plot.querySelector('.delta')?.remove();
+      if(c.lastAccepted!==null && p.accepted>c.lastAccepted && !matchMedia('(prefers-reduced-motion: reduce)').matches){
+        const delta=make('div','delta',`+${p.accepted-c.lastAccepted} 人通过`);
+        delta.addEventListener('animationend',()=>delta.remove(),{once:true});c.plot.append(delta);
+      }
+      c.lastAccepted=p.accepted;
+      c.total.style.setProperty('--height',p.total/max*88+'%');c.ac.style.setProperty('--height',p.accepted/max*88+'%');c.value.style.setProperty('--height',p.accepted/max*88+'%');c.value.textContent=p.accepted;c.accepted.textContent=p.accepted;c.attempted.textContent=p.total;c.column.title=`${p.label} · ${p.title}\n通过 ${p.accepted} 人 / 尝试 ${p.total} 人`;});
     chart.setAttribute('aria-label',data.map(p=>`${p.label}：通过 ${p.accepted} 人，尝试 ${p.total} 人`).join('；') || '暂无题目');updateClock();
   }
   async function read(path,signal){
@@ -532,4 +541,153 @@ html.am body {background:var(--am-bg)!important;color:var(--am-ink);font-family:
   }
 })();
 
+// Both OJ's escaped subscripts and ordinary TeX represent subscripts here.
+function createMarkdownCore() {
+  const escaped = (s, i) => {
+    let n = 0;
+    while (i > 0 && s[--i] === '\\') n++;
+    return n % 2 === 1;
+  };
+  function mathBody(s, mode) {
+    return s.replace(/\\*_/g, run => {
+      const n = run.length - 1;
+      return mode === 'oj' ? (n % 2 ? run : '\\' + run) : (n % 2 ? run.slice(1) : run);
+    });
+  }
+  function convert(source, mode = 'oj') {
+    const eol = source.includes('\r\n') ? '\r\n' : '\n';
+    const s = source.replace(/\r\n/g, '\n');
+    let out = '', i = 0;
+    while (i < s.length) {
+      const startLine = i === 0 || s[i - 1] === '\n';
+      if (startLine) {
+        const end = s.indexOf('\n', i), stop = end < 0 ? s.length : end;
+        const line = s.slice(i, stop);
+        const fence = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+        if (fence && !(fence[1][0] === '`' && fence[2].includes('`'))) {
+          const rest = s.slice(end < 0 ? s.length : end + 1);
+          const closing = new RegExp('^ {0,3}' + fence[1][0] + '{' + fence[1].length + ',}[ \\t]*(?:\\n|$)', 'm').exec(rest);
+          // An unfinished fence is a code block through EOF, as in CommonMark.
+          const content = rest.slice(0, closing ? closing.index : rest.length);
+          const consumed = (end < 0 ? s.length : end + 1) + (closing ? closing.index + closing[0].length : rest.length);
+          if (mode === 'oj') {
+            if (out && !out.endsWith('\n\n')) out += out.endsWith('\n') ? '\n' : '\n\n';
+            const lines = content.split('\n');
+            if (content.endsWith('\n')) lines.pop();
+            out += lines.map(line => '    ' + line).join('\n');
+            // Keep following prose out of the indented code block.
+            if (consumed < s.length) out += '\n\n';
+            else if (s.endsWith('\n')) out += '\n';
+          } else out += s.slice(i, consumed);
+          i = consumed;
+          continue;
+        }
+        // Existing code blocks are already portable; never touch their whitespace or TeX.
+        if (/^( {4}|\t)/.test(line)) {
+          out += s.slice(i, end < 0 ? s.length : end + 1);
+          i = end < 0 ? s.length : end + 1;
+          continue;
+        }
+      }
+      // Raw HTML code and tag attributes, URL destinations and inline code are not math.
+      const raw = s.slice(i).match(/^<(pre|code|script|style|textarea)\b[^>]*>[\s\S]*?<\/\1\s*>/i);
+      if (raw) { out += raw[0]; i += raw[0].length; continue; }
+      const tag = s[i] === '<' && s.slice(i).match(/^<[^>\n]+>/);
+      if (tag) { out += tag[0]; i += tag[0].length; continue; }
+      const url = s.slice(i).match(/^https?:\/\/[^\s<>]+/);
+      if (url) { out += url[0]; i += url[0].length; continue; }
+      if (s[i] === '`' && !escaped(s, i)) {
+        const run = s.slice(i).match(/^`+/)[0];
+        let j = i + run.length, close = -1;
+        while ((j = s.indexOf(run, j)) >= 0) {
+          if (s[j - 1] !== '`' && s[j + run.length] !== '`') { close = j; break; }
+          j += run.length;
+        }
+        if (close >= 0) { const end = close + run.length; out += s.slice(i, end); i = end; continue; }
+        out += run; i += run.length; continue;
+      }
+      const delim = !escaped(s, i) && (s.startsWith('\\[', i) ? ['\\[', '\\]', '$$'] : s.startsWith('\\(', i) ? ['\\(', '\\)', '$'] : s.startsWith('$$', i) ? ['$$', '$$', '$$'] : s[i] === '$' && /\S/.test(s[i + 1] || '') ? ['$', '$', '$'] : null);
+      if (delim) {
+        const [open, close, target] = delim;
+        let j = i + open.length, found = -1;
+        while ((j = s.indexOf(close, j)) >= 0) {
+          if (!escaped(s, j) && (close !== '$' || (s[j - 1] !== '$' && s[j + 1] !== '$' && /\S/.test(s[j - 1])))) { found = j; break; }
+          j += close.length;
+        }
+        if (found >= 0) {
+          const body = s.slice(i + open.length, found);
+          // Do not interpret separate paragraphs, code fences or inline code as a single formula.
+          if (!/\n\s*\n|`/.test(body) && !(target === '$' && body.includes('\n'))) {
+            out += target + mathBody(body, mode) + target;
+            i = found + close.length;
+            continue;
+          }
+        }
+      }
+      out += s[i++];
+    }
+    return eol === '\n' ? out : out.replace(/\n/g, eol);
+  }
+  return { toOJ: source => convert(source, 'oj'), toCommon: source => convert(source, 'common') };
+}
+
+function mountMarkdownEditor(Core) {
+  const input = document.querySelector('textarea#problem-description[name="description"]');
+  const preview = document.getElementById('preview');
+  if (!input?.form || !preview || document.getElementById('am-markdown-tools')) return;
+  const form = input.form;
+  const toolbar = document.createElement('div');
+  toolbar.id = 'am-markdown-tools';
+  toolbar.innerHTML = `<div class="am-md-actions"><strong>Markdown 兼容编辑</strong><button type="button" data-copy="common">复制通用 Markdown</button><button type="button" data-copy="oj">复制 OJ 格式</button><button type="button" data-show>查看保存格式</button></div><p>支持普通／转义下标、两种公式定界符及围栏代码。保存时自动适配 OJ，编辑原文保持不变。</p><span role="status" aria-live="polite"></span><details><summary>将保存的题面源码</summary><textarea readonly aria-label="将保存的题面源码" spellcheck="false"></textarea></details>`;
+  const style = document.createElement('style');
+  style.textContent = `#am-markdown-tools{margin:12px 0;padding:14px 16px;border:1px solid #dbe5ef;background:#f5f8fc;border-radius:10px;color:#344258;font:13px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}#am-markdown-tools .am-md-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}#am-markdown-tools strong{margin-right:auto}#am-markdown-tools button{border:1px solid #cbd7e6;background:#fff;color:#315787;border-radius:6px;padding:6px 10px;cursor:pointer;font:inherit}#am-markdown-tools p{margin:8px 0 0}#am-markdown-tools [role=status]{color:#386749}#am-markdown-tools details:not([open]){display:none}#am-markdown-tools details{margin-top:10px}#am-markdown-tools textarea{display:block;width:100%!important;min-height:220px;font:13px/1.65 ui-monospace,monospace;white-space:pre;overflow:auto;padding:12px;border:1px solid #cbd7e6;border-radius:6px;background:white;color:#243249}#am-markdown-tools button:focus-visible{outline:2px solid #377ce2;outline-offset:2px}`;
+  document.head.append(style);
+  const editRow = input.closest('.problem-edit-left')?.parentElement;
+  (editRow || input).before(toolbar);
+  const status = toolbar.querySelector('[role=status]');
+  const details = toolbar.querySelector('details');
+  const saved = details.querySelector('textarea');
+  const setSaved = value => { saved.value = value; saved.setAttribute('_value', value); };
+  const updateSaved = () => { if (details.open) setSaved(Core.toOJ(input.value)); };
+  toolbar.querySelector('[data-show]').addEventListener('click', () => { details.open = !details.open; updateSaved(); });
+  for (const button of toolbar.querySelectorAll('[data-copy]')) {
+    button.addEventListener('click', async () => {
+      const value = button.dataset.copy === 'oj' ? Core.toOJ(input.value) : Core.toCommon(input.value);
+      try {
+        await navigator.clipboard.writeText(value);
+        status.textContent = button.dataset.copy === 'oj' ? '已复制 OJ 格式。' : '已复制通用 Markdown。';
+      } catch {
+        details.open = true; setSaved(value); saved.focus(); saved.select();
+        status.textContent = '浏览器未允许剪贴板写入，已选中源码，可按 Ctrl/Cmd+C 复制。';
+      }
+    });
+  }
+  // FormData runs for native submission, jQuery .submit(), and new FormData(form).
+  // It changes only the outgoing description, so cancelled confirmation keeps the draft intact.
+  form.addEventListener('formdata', event => {
+    if (!input.disabled && input.form === form && event.formData.has(input.name)) {
+      event.formData.set(input.name, Core.toOJ(input.value));
+    }
+  });
+  function render() {
+    if (!window.markdown?.toHTML) return;
+    preview.innerHTML = window.markdown.toHTML(Core.toOJ(input.value), 'Maruku');
+    window.MathJax?.Hub?.Queue(['Typeset', window.MathJax.Hub, preview]);
+    updateSaved();
+  }
+  // Preserve the site's other editors and oninput handler; only this description uses conversion.
+  const original = window.Editor;
+  if (typeof original === 'function') {
+    window.Editor = function(inputId, previewId) {
+      if (inputId !== input.id || previewId !== preview.id) return original.apply(this, arguments);
+      input.editor = { update: render };
+      render();
+    };
+  } else input.addEventListener('input', render);
+  input.addEventListener('input', updateSaved);
+  form.addEventListener('reset', () => setTimeout(render, 0));
+  render();
+}
+
+mountMarkdownEditor(createMarkdownCore());
 })();

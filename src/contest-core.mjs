@@ -45,7 +45,9 @@ export function createContestCore() {
       for (const [key,detail] of Object.entries(row.detail)) {
         const p = keys.get(key);
         if (!p) continue;
-        if (!detail || typeof detail.result !== 'string') throw new Error('排行榜结果格式不匹配');
+        // A missing detail means no attempt; a pending result still represents an attempt.
+        if (detail == null) continue;
+        if (typeof detail !== 'object' || Array.isArray(detail) || (detail.result != null && typeof detail.result !== 'string')) throw new Error('排行榜结果格式不匹配');
         p.total++;
         if (detail.result === 'AC') p.accepted++;
       }
