@@ -38,7 +38,7 @@ function mountBatchUpload(Core) {
     try {
       if(!Number.isInteger(start)||start<0) throw new Error('原站测试点计数不可用，请刷新后重试。');
       // Prepare every FileList before touching the form, then use the site's own row builder.
-      const entries=result.pairs.map(pair=>['input','output'].map(side=>{const transfer=new DataTransfer();transfer.items.add(pair[side]);return transfer.files;}));
+      const entries=result.pairs.map(pair=>['input','output'].map(side=>{const transfer=new DataTransfer();transfer.items.add(Core.uploadFile(pair[side]));return transfer.files;}));
       entries.forEach((entry,index)=>{
         const n=start+index;
         if(document.getElementById('input_file_in'+n))throw new Error('原站测试点序号发生冲突。');

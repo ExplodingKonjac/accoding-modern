@@ -14,7 +14,7 @@ const testdataGuard=await readFile(new URL('src/testdata-guard.js',root),'utf8')
 const header=`// ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.3.1
+// @version      1.3.2
 // @description  本地界面美化、赛事统计看板、题面 Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @run-at       document-end

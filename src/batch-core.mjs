@@ -28,5 +28,11 @@ export function createBatchCore() {
     if (!pairs.length) errors.push('没有找到测试点。请选择同名 .in 与 .ans／.out 文件；压缩包请先解压。');
     return { pairs, ignored, errors, bytes };
   }
-  return { pairFiles };
+  function uploadFile(file) {
+    // Directory-picked Files retain webkitRelativePath after DataTransfer assignment.
+    // Chromium uses that path as the multipart filename even in an ordinary input.
+    // Rewrap the Blob, without decoding its bytes, to match a manual file selection.
+    return new File([file], file.name, { type: file.type, lastModified: file.lastModified });
+  }
+  return { pairFiles, uploadFile };
 }

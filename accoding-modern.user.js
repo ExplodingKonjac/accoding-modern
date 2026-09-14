@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.3.1
+// @version      1.3.2
 // @description  本地界面美化、赛事统计看板、题面 Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @run-at       document-end
@@ -720,7 +720,13 @@ function createBatchCore() {
     if (!pairs.length) errors.push('没有找到测试点。请选择同名 .in 与 .ans／.out 文件；压缩包请先解压。');
     return { pairs, ignored, errors, bytes };
   }
-  return { pairFiles };
+  function uploadFile(file) {
+    // Directory-picked Files retain webkitRelativePath after DataTransfer assignment.
+    // Chromium uses that path as the multipart filename even in an ordinary input.
+    // Rewrap the Blob, without decoding its bytes, to match a manual file selection.
+    return new File([file], file.name, { type: file.type, lastModified: file.lastModified });
+  }
+  return { pairFiles, uploadFile };
 }
 
 function mountBatchUpload(Core) {
@@ -763,7 +769,7 @@ function mountBatchUpload(Core) {
     try {
       if(!Number.isInteger(start)||start<0) throw new Error('原站测试点计数不可用，请刷新后重试。');
       // Prepare every FileList before touching the form, then use the site's own row builder.
-      const entries=result.pairs.map(pair=>['input','output'].map(side=>{const transfer=new DataTransfer();transfer.items.add(pair[side]);return transfer.files;}));
+      const entries=result.pairs.map(pair=>['input','output'].map(side=>{const transfer=new DataTransfer();transfer.items.add(Core.uploadFile(pair[side]));return transfer.files;}));
       entries.forEach((entry,index)=>{
         const n=start+index;
         if(document.getElementById('input_file_in'+n))throw new Error('原站测试点序号发生冲突。');

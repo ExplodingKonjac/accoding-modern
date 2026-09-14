@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createBatchCore} from '../src/batch-core.mjs';
+import {File as NodeFile} from 'node:buffer';
+globalThis.File ??= NodeFile;
 const C=createBatchCore();
 const f=(name,path='')=>({name,webkitRelativePath:path,size:12});
 test('pairs by filename rather than selection order; sorts naturally',()=>{const r=C.pairFiles(['10.ans','2.in','10.in','2.ans'].map(n=>f(n)));assert.deepEqual(r.errors,[]);assert.deepEqual(r.pairs.map(p=>[p.input.name,p.output.name]),[['2.in','2.ans'],['10.in','10.ans']]);assert.equal(r.bytes,48);});
@@ -9,3 +11,23 @@ test('rejects missing or ambiguous partner before any form edits',()=>{assert.eq
 test('rejects duplicate flat names across directories and existing uploaded names',()=>{assert.ok(C.pairFiles([f('a.in','x/a.in'),f('a.ans','y/a.ans')]).errors.length);assert.ok(C.pairFiles([f('a.in','x/a.in'),f('a.in','y/a.in')]).errors.some(e=>e.includes('重复')));assert.ok(C.pairFiles([f('a.in'),f('a.ans')],['A.IN']).errors.some(e=>e.includes('重名')));});
 test('ignores hidden files and documentation without interpreting their contents',()=>{const r=C.pairFiles([f('a.in','data/a.in'),f('a.ans','data/a.ans'),f('._a.in'),f('README.md')]);assert.equal(r.errors.length,0);assert.equal(r.ignored.length,2);});
 test('zip-only and empty selections explain supported formats',()=>{assert.ok(C.pairFiles([f('cases.zip')]).errors[0].includes('解压'));assert.ok(C.pairFiles([]).errors.length);});
+test('upload copy drops directory metadata and preserves exact binary bytes and file metadata',async()=>{
+  const bytes=new Uint8Array([0,255,13,10,128]);
+  const original=new File([bytes],'01.in',{type:'application/octet-stream',lastModified:123456});
+  Object.defineProperty(original,'webkitRelativePath',{value:'测试点/nested/01.in'});
+  const copy=C.uploadFile(original);
+  assert.notEqual(copy,original);
+  assert.ok(!copy.webkitRelativePath);
+  assert.equal(copy.name,original.name);
+  assert.equal(copy.type,original.type);
+  assert.equal(copy.lastModified,original.lastModified);
+  assert.deepEqual(new Uint8Array(await copy.arrayBuffer()),bytes);
+  const data=new FormData();data.append('input',copy);
+  const body=await new Response(data).text();
+  assert.ok(body.includes('filename="01.in"'));
+  assert.ok(!body.includes('nested/'));
+});
+test('upload copy preserves zero byte answers',async()=>{
+  const copy=C.uploadFile(new File([],'empty.ans',{lastModified:42}));
+  assert.equal(copy.size,0);assert.equal(copy.name,'empty.ans');
+});
