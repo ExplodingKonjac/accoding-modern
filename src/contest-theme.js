@@ -38,7 +38,7 @@ html.am-ng{--ng-bg:#f5f7fb;--ng-card:#fff;--ng-line:#e3e9f2;--ng-ink:#202b40;--n
 .am-ng [ng-include="'detail/time.html'"] label label{font-size:13px;font-weight:550;color:#344660;font-variant-numeric:tabular-nums;margin-bottom:0}
 .am-ng [ng-include="'detail/time.html'"]>label:last-child>label:last-of-type{font-size:19px;letter-spacing:1px;color:var(--ng-blue)}
 .am-ng [ng-view]>.col-lg-10{width:auto;float:none;min-width:0;padding:28px 30px;background:#fff;border:1px solid var(--ng-line);border-radius:13px;min-height:calc(100vh - 140px);overflow-wrap:anywhere}
-.am-ng [ng-view]>.col-lg-10>div:first-child:has(>h4){display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:25px}
+.am-ng [ng-view]>.col-lg-10>div:has(>h4){display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:25px}
 .am-ng h1,.am-ng h2,.am-ng h3,.am-ng h4{color:var(--ng-ink);font-weight:650;line-height:1.5;letter-spacing:-.4px}
 .am-ng h1{font-size:28px}.am-ng h2{font-size:23px}.am-ng h3{font-size:23px;margin-top:0}.am-ng h4{font-size:22px;margin:0}
 .am-ng h3 small{display:inline-block;font-size:11px;letter-spacing:0;color:var(--ng-muted);font-weight:400}

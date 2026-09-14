@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createBatchCore} from '../src/batch-core.mjs';
+const C=createBatchCore();
+const f=(name,path='')=>({name,webkitRelativePath:path,size:12});
+test('pairs by filename rather than selection order; sorts naturally',()=>{const r=C.pairFiles(['10.ans','2.in','10.in','2.ans'].map(n=>f(n)));assert.deepEqual(r.errors,[]);assert.deepEqual(r.pairs.map(p=>[p.input.name,p.output.name]),[['2.in','2.ans'],['10.in','10.ans']]);assert.equal(r.bytes,48);});
+test('accepts .out, case insensitive extensions, and empty valid files',()=>{const r=C.pairFiles([f('a.IN'),{...f('a.OUT'),size:0}]);assert.equal(r.errors.length,0);});
+test('rejects missing or ambiguous partner before any form edits',()=>{assert.equal(C.pairFiles([f('a.in')]).errors.length,1);assert.ok(C.pairFiles([f('a.in'),f('a.ans'),f('a.out')]).errors.length);});
+test('rejects duplicate flat names across directories and existing uploaded names',()=>{assert.ok(C.pairFiles([f('a.in','x/a.in'),f('a.ans','y/a.ans')]).errors.length);assert.ok(C.pairFiles([f('a.in','x/a.in'),f('a.in','y/a.in')]).errors.some(e=>e.includes('重复')));assert.ok(C.pairFiles([f('a.in'),f('a.ans')],['A.IN']).errors.some(e=>e.includes('重名')));});
+test('ignores hidden files and documentation without interpreting their contents',()=>{const r=C.pairFiles([f('a.in','data/a.in'),f('a.ans','data/a.ans'),f('._a.in'),f('README.md')]);assert.equal(r.errors.length,0);assert.equal(r.ignored.length,2);});
+test('zip-only and empty selections explain supported formats',()=>{assert.ok(C.pairFiles([f('cases.zip')]).errors[0].includes('解压'));assert.ok(C.pairFiles([]).errors.length);});

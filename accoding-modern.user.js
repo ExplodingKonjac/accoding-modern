@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.2.0
-// @description  本地界面美化、赛事统计看板与题面 Markdown 兼容编辑，保留原站登录和操作。
+// @version      1.3.0
+// @description  本地界面美化、赛事统计看板、题面 Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @run-at       document-end
 // @grant        none
@@ -272,7 +272,7 @@ html.am-ng{--ng-bg:#f5f7fb;--ng-card:#fff;--ng-line:#e3e9f2;--ng-ink:#202b40;--n
 .am-ng [ng-include="'detail/time.html'"] label label{font-size:13px;font-weight:550;color:#344660;font-variant-numeric:tabular-nums;margin-bottom:0}
 .am-ng [ng-include="'detail/time.html'"]>label:last-child>label:last-of-type{font-size:19px;letter-spacing:1px;color:var(--ng-blue)}
 .am-ng [ng-view]>.col-lg-10{width:auto;float:none;min-width:0;padding:28px 30px;background:#fff;border:1px solid var(--ng-line);border-radius:13px;min-height:calc(100vh - 140px);overflow-wrap:anywhere}
-.am-ng [ng-view]>.col-lg-10>div:first-child:has(>h4){display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:25px}
+.am-ng [ng-view]>.col-lg-10>div:has(>h4){display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:25px}
 .am-ng h1,.am-ng h2,.am-ng h3,.am-ng h4{color:var(--ng-ink);font-weight:650;line-height:1.5;letter-spacing:-.4px}
 .am-ng h1{font-size:28px}.am-ng h2{font-size:23px}.am-ng h3{font-size:23px;margin-top:0}.am-ng h4{font-size:22px;margin:0}
 .am-ng h3 small{display:inline-block;font-size:11px;letter-spacing:0;color:var(--ng-muted);font-weight:400}
@@ -690,4 +690,137 @@ function mountMarkdownEditor(Core) {
 }
 
 mountMarkdownEditor(createMarkdownCore());
+function createBatchCore() {
+  function pairFiles(files, existingNames = []) {
+    const groups = new Map(), ignored = [], errors = [], used = new Set();
+    const existing = new Set(existingNames.map(n => n.toLowerCase()));
+    let bytes = 0;
+    for (const file of files) {
+      const path = file.webkitRelativePath || file.name;
+      const parts = path.split('/');
+      if (parts.some(p => p.startsWith('.'))) { ignored.push(path); continue; }
+      const match = file.name.match(/^(.+)\.(in|ans|out)$/i);
+      if (!match) { ignored.push(path); continue; }
+      const name = file.name.toLowerCase();
+      if (used.has(name)) errors.push(`文件名重复：${file.name}（上传后不保留目录）`);
+      if (existing.has(name)) errors.push(`与已存在的文件重名：${file.name}`);
+      used.add(name);
+      const key = path.slice(0, path.length - match[2].length - 1);
+      const pair = groups.get(key) || { key, input: null, output: null };
+      const side = match[2].toLowerCase() === 'in' ? 'input' : 'output';
+      if (pair[side]) errors.push(`同一测试点有多个${side === 'input' ? '输入' : '答案'}文件：${key}`);
+      pair[side] = file;
+      bytes += file.size;
+      groups.set(key, pair);
+    }
+    const pairs = [...groups.values()].sort((a,b) => a.key.localeCompare(b.key, 'en', {numeric:true}));
+    for (const pair of pairs) {
+      if (!pair.input || !pair.output) errors.push(`缺少${pair.input ? '.ans 或 .out' : '.in'}：${pair.key}`);
+    }
+    if (!pairs.length) errors.push('没有找到测试点。请选择同名 .in 与 .ans／.out 文件；压缩包请先解压。');
+    return { pairs, ignored, errors, bytes };
+  }
+  return { pairFiles };
+}
+
+function mountBatchUpload(Core) {
+  const container = document.getElementById('test_data');
+  const total = document.getElementById('total_files');
+  if (!container || !total || typeof window.add_test_data !== 'function' || document.getElementById('am-batch-upload')) return;
+  const make = (tag, text) => { const e=document.createElement(tag); if(text!==undefined)e.textContent=text; return e; };
+  const panel = make('section'); panel.id='am-batch-upload';
+  const heading=make('strong','批量添加测试点');
+  const hint=make('p','选择多组同名 .in 与 .ans／.out 文件，自动配对并追加到下方。压缩包请先解压；最后点击原站“保存”上传。');
+  const actions=make('div');actions.className='am-batch-actions';
+  const files=make('input');files.type='file';files.multiple=true;files.hidden=true;files.id='am-batch-files';
+  const folder=make('input');folder.type='file';folder.multiple=true;folder.webkitdirectory=true;folder.hidden=true;folder.id='am-batch-folder';
+  const button=(text,handler)=>{const b=make('button',text);b.type='button';b.addEventListener('click',handler);return b;};
+  const choose=button('选择多个文件',()=>{files.value='';files.click();});
+  const chooseFolder=button('选择文件夹',()=>{folder.value='';folder.click();});
+  const apply=button('填入测试点',append);apply.disabled=true;
+  const status=make('p');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+  const preview=make('div');preview.className='am-batch-preview';
+  const style=make('style');style.textContent=`#am-batch-upload{padding:16px;margin:14px 0;border:1px solid #cdddec;border-radius:10px;background:#f4f8fd;color:#344258;font:13px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}#am-batch-upload p{margin:8px 0}#am-batch-upload .am-batch-actions{display:flex;gap:8px;flex-wrap:wrap}#am-batch-upload button{font:inherit;background:white;border:1px solid #bfcee0;border-radius:6px;padding:6px 12px;color:#2858a0;cursor:pointer}#am-batch-upload button:disabled{opacity:.45;cursor:default}#am-batch-upload button:focus-visible{outline:2px solid #387bea;outline-offset:2px}#am-batch-upload [hidden]{display:none!important}#am-batch-upload .am-batch-preview{max-height:220px;overflow:auto}#am-batch-upload table{width:100%;font-size:12px;border-collapse:collapse}#am-batch-upload td,#am-batch-upload th{padding:5px 8px;text-align:left;overflow-wrap:anywhere}#am-batch-upload [role=status]{white-space:pre-line}#am-batch-upload [data-error=true]{color:#b23838}`;
+  actions.append(choose,chooseFolder,apply);panel.append(heading,hint,actions,files,folder,status,preview);document.head.append(style);container.before(panel);
+  let selection=[];
+  const existing=()=>[...container.querySelectorAll('input[type=file]')].flatMap(e=>e.files.length?[...e.files].map(f=>f.name):e.getAttribute('value')?[e.getAttribute('value')]:[]);
+  const plan=()=>Core.pairFiles(selection,existing());
+  function show() {
+    const result=plan();preview.replaceChildren();
+    status.dataset.error=String(!!result.errors.length);
+    status.textContent=result.errors.length?result.errors.join('\n'):`已配对 ${result.pairs.length} 组 · ${(result.bytes/1024).toFixed(1)} KB`;
+    if(result.ignored.length) status.textContent+=`\n忽略 ${result.ignored.length} 个非测试点或隐藏文件。`;
+    apply.disabled=!!result.errors.length;apply.textContent=result.errors.length?'填入测试点':`填入 ${result.pairs.length} 组测试点`;
+    if(result.pairs.length){const table=make('table'),thead=make('thead'),tr=make('tr');for(const s of ['输入文件','答案文件'])tr.append(make('th',s));thead.append(tr);const body=make('tbody');for(const pair of result.pairs){const row=make('tr');row.append(make('td',pair.input?.name||'缺失'),make('td',pair.output?.name||'缺失'));body.append(row);}table.append(thead,body);preview.append(table);}
+  }
+  for(const input of [files,folder]) input.addEventListener('change',()=>{if(input.files.length){selection=[...input.files];show();}});
+  function append() {
+    // Recheck names at commit time: users may have manually added rows since selecting files.
+    const result=plan();
+    if(result.errors.length){show();return;}
+    const start=Number(window.__number_of_test_data), oldCounter=window.__number_of_test_data, oldTotal=total.value;
+    const before=new Set(container.children);
+    try {
+      if(!Number.isInteger(start)||start<0) throw new Error('原站测试点计数不可用，请刷新后重试。');
+      // Prepare every FileList before touching the form, then use the site's own row builder.
+      const entries=result.pairs.map(pair=>['input','output'].map(side=>{const transfer=new DataTransfer();transfer.items.add(pair[side]);return transfer.files;}));
+      entries.forEach((entry,index)=>{
+        const n=start+index;
+        if(document.getElementById('input_file_in'+n))throw new Error('原站测试点序号发生冲突。');
+        window.add_test_data();
+        ['in','out'].forEach((side,j)=>{
+          const target=document.getElementById('input_file_'+side+n);
+          if(!target || target.form!==total.form)throw new Error('原站测试点表单结构已变化。');
+          target.files=entry[j];target.dispatchEvent(new Event('change',{bubbles:true}));
+        });
+      });
+      selection=[];files.value='';folder.value='';apply.disabled=true;preview.replaceChildren();
+      status.dataset.error='false';status.textContent=`已填入 ${entries.length} 组，权重默认为 1。尚未上传，请检查下方列表，再点击原站“保存”。`;
+    } catch(error) {
+      for(const child of [...container.children])if(!before.has(child))child.remove();
+      window.__number_of_test_data=oldCounter;total.value=oldTotal;total.setAttribute('value',oldTotal);
+      status.dataset.error='true';status.textContent='填入失败，已撤销本次新增行。'+error.message;
+    }
+  }
+}
+
+mountBatchUpload(createBatchCore());
+function mountBackNavigation() {
+  if (document.getElementById('am-back-style')) return;
+  const style=document.createElement('style');style.id='am-back-style';
+  style.textContent=`#am-back-nav{grid-column:1/-1;width:100%;clear:both;margin:0 0 18px;line-height:1.5}#am-back-nav a{display:inline-flex;align-items:center;gap:8px;padding:8px 13px;border:1px solid #d4dfec;border-radius:8px;background:#fff;color:#315d9b;font:500 14px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;text-decoration:none}#am-back-nav a:hover{background:#edf4ff;border-color:#adc7ea}#am-back-nav a:focus-visible{outline:2px solid #377ce2;outline-offset:3px}.am #page.am-problem-layout:has(>#am-back-nav){grid-template-rows:auto 1fr}@media print{#am-back-nav{display:none}}`;
+  document.head.append(style);
+  function parent() {
+    if (location.pathname.startsWith('/contest-ng/')) {
+      const parts=location.hash.replace(/^#\//,'').split('/').filter(Boolean);
+      if (!/^\d+$/.test(parts[0]||'')) return null;
+      return parts.length>1 ? {href:location.pathname+'#/'+parts.slice(0,-1).join('/'),title:'返回比赛上级页面'} : {href:'/contest/index',title:'返回赛事列表'};
+    }
+    const match=location.pathname.match(/^\/(problem|contest|group|submission|user)\/(.*)$/);
+    if (!match) return null;
+    const [,kind,rest]=match, parts=rest.split('/').filter(Boolean);
+    const names={problem:'题目',contest:'赛事',group:'小组',submission:'评测记录',user:'个人信息'};
+    if (/^\d+$/.test(parts[0])) {
+      if(parts.length>1&&parts[1]!=='index')return {href:`/${kind}/${parts[0]}/index`,title:`返回${names[kind]}详情`};
+      return {href:kind==='user'?'/':`/${kind}/index`,title:kind==='user'?'返回首页':`返回${names[kind]}列表`};
+    }
+    return parts[0]==='index'?{href:'/',title:'返回首页'}:{href:kind==='user'?'/':`/${kind}/index`,title:`返回${names[kind]}列表`};
+  }
+  function update() {
+    const target=parent();
+    const content=document.querySelector('#page')||document.querySelector('[ng-view]>.col-lg-10');
+    if(!target||!content){document.getElementById('am-back-nav')?.remove();return;}
+    let nav=document.getElementById('am-back-nav');
+    if(!nav){nav=document.createElement('div');nav.id='am-back-nav';const link=document.createElement('a');link.textContent='← 上一页';nav.append(link);content.prepend(nav);}
+    const link=nav.firstElementChild;
+    if(link.getAttribute('href')!==target.href){link.setAttribute('href',target.href);link.title=target.title;link.setAttribute('aria-label','上一页：'+target.title);}
+  }
+  let queued=false;
+  const schedule=()=>{if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;update();});};
+  new MutationObserver(schedule).observe(document.body,{childList:true,subtree:true});
+  window.addEventListener('hashchange',schedule);
+  update();
+}
+
+mountBackNavigation();
 })();
