@@ -31,6 +31,10 @@
 
 [未开始状态示例](docs/contest-board-upcoming-preview.png)
 
+## 1.5.1 更新
+
+同步 [PR #1](https://github.com/y38501148-max/accoding-modern/pull/1) 的提示栏布局修复：为“正在更新”保留一行高度，提示出现和消失时，柱状图与等待开赛文字不再上下跳动。
+
 ## 通过人数动画（1.5.0）
 
 - **+N 模式**：人数和双柱直接同步本次榜单，显示 `+N 人通过`。
