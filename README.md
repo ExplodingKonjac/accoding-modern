@@ -1,5 +1,7 @@
 # Accoding Modern
 
+> 1.7.0 新增独立补题排行榜及赛时通过数排序；[使用说明](docs/upsolve-preview.md)。
+
 > 1.6.0：新增 XLSX 班级名册、班级比赛统计、学生提交明细和代码入口。详见 [班级功能说明](docs/class-preview.md)。
 
 北航 Accoding 管理站的本地界面美化与赛事统计看板。通过 Tampermonkey 运行，继续使用原站账号和业务操作。

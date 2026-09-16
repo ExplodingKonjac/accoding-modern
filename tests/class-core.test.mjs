@@ -2,6 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createClassCore} from '../src/class-core.mjs';
 const core=createClassCore();
+test('class members sort by in-contest solved count, then student number; unmatched last',()=>{
+  const rows=[{studentId:'002',userId:'2',accepted:3},{studentId:'000',userId:null,accepted:null},{studentId:'003',userId:'3',accepted:10},{studentId:'001',userId:'1',during:3,upsolved:7}];
+  assert.deepEqual(core.sortMembers(rows).map(r=>r.studentId),['003','001','002','000']);
+  assert.equal(rows[0].studentId,'002');
+});
 test('teaching roster header may follow metadata; only required columns survive',()=>{
   const result=core.roster([['点名册'],['2026秋'],['序号','学号','姓名','联系电话','班级'],[1,'00123456',' 张三 ','123456789','C1'],[2,'00123456','张三','secret','C1']]);
   assert.deepEqual(result.members,[{studentId:'00123456',name:'张三',group:'C1'}]);assert.equal(result.warnings.length,1);

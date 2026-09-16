@@ -55,5 +55,9 @@ export function createClassCore() {
       .filter(s => {if (seen.has(String(s.id))) return false; seen.add(String(s.id)); return true;})
       .sort((a,b) => Number(b.id) - Number(a.id));
   }
-  return {clean, roster, summarize, submissions};
+  function sortMembers(rows) {
+    const score=m=>m.userId ? (m.during ?? m.accepted ?? -1) : -1;
+    return [...rows].sort((a,b)=>score(b)-score(a)||String(a.studentId).localeCompare(String(b.studentId),'en',{numeric:true}));
+  }
+  return {clean, roster, summarize, submissions, sortMembers};
 }
