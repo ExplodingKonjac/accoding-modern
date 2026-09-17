@@ -352,6 +352,71 @@ mountContestBoard(createContestCore());
 // Scope styles to its stable template selectors so late ng-include and route changes work.
 (() => {
   if (!/^\/contest-ng\//.test(location.pathname) || document.getElementById('am-ng-style')) return;
+  // Angular's contest poller replaces Contest.data periodically. The `marked` filter then
+  // writes the markdown HTML back into `.markdown-body`, which removes MathJax's generated
+  // nodes. The original controller only queues MathJax when the user clicks a problem, so a
+  // formula can fall back to its raw delimiters after an otherwise invisible refresh.
+  // Re-typeset after a markdown body is changed. Keep this independent of the Angular internals
+  // because the template is loaded asynchronously and is replaced on hash navigation.
+  const installMathJaxRepair=()=>{
+    if(!window.MutationObserver)return;
+    let typesetting=false,pending=false;
+    const mathJaxSelector='.MathJax,.MathJax_Display,.MathJax_Preview,[id^="MathJax-"]';
+    const isMathJaxNode=node=>{
+      const element=node?.nodeType===1?node:node?.parentElement;
+      return !!(element?.matches?.(mathJaxSelector)||element?.closest?.(mathJaxSelector));
+    };
+    const isMathJaxMutation=record=>{
+      const target=record.target?.nodeType===1?record.target:record.target?.parentElement;
+      if(target?.closest?.(mathJaxSelector))return true;
+      const added=[...record.addedNodes];
+      const removed=[...record.removedNodes];
+      // MathJax replaces a source text node with a `.MathJax` subtree. Angular's
+      // refresh adds ordinary HTML, so it remains observable while MathJax's own
+      // mutations are ignored.
+      if(added.length)return added.every(isMathJaxNode);
+      return removed.length>0&&removed.every(isMathJaxNode);
+    };
+    const bodiesFrom=records=>{
+      const bodies=new Set();
+      const add=node=>{
+        if(!node)return;
+        const element=node.nodeType===1?node:node.parentElement;
+        const body=element?.closest?.('.markdown-body');
+        if(body)bodies.add(body);
+        if(element?.matches?.('.markdown-body'))bodies.add(element);
+        element?.querySelectorAll?.('.markdown-body').forEach(item=>bodies.add(item));
+      };
+      for(const record of records){
+        add(record.target);
+        record.addedNodes.forEach(add);
+        record.removedNodes.forEach(add);
+      }
+      return [...bodies].filter(body=>body.isConnected);
+    };
+    const queue=nodes=>{
+      const math=window.MathJax;
+      if(!math?.Hub?.Queue||!nodes.length)return;
+      if(typesetting){pending=true;return;}
+      typesetting=true;
+      const commands=nodes.map(node=>['Typeset',math.Hub,node]);
+      commands.push(()=>{
+        typesetting=false;
+        if(pending){pending=false;queue([...document.querySelectorAll('.markdown-body')]);}
+      });
+      math.Hub.Queue(...commands);
+    };
+    const observer=new MutationObserver(records=>{
+      const relevant=records.filter(record=>!isMathJaxMutation(record));
+      const bodies=bodiesFrom(relevant);
+      if(typesetting){if(bodies.length)pending=true;return;}
+      queue(bodies);
+    });
+    observer.observe(document.body,{childList:true,subtree:true});
+    // The route may already have rendered before this theme script runs.
+    queue([...document.querySelectorAll('.markdown-body')]);
+  };
+  installMathJaxRepair();
   let disabled=false;
   try { disabled=sessionStorage.getItem('am-disabled')==='1'; } catch (_) {}
   const toggle=value=>{try{sessionStorage.setItem('am-disabled',value?'1':'0');}catch(_){}location.reload();};
