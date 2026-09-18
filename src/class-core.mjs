@@ -59,5 +59,15 @@ export function createClassCore() {
     const score=m=>m.userId ? (m.during ?? m.accepted ?? -1) : -1;
     return [...rows].sort((a,b)=>score(b)-score(a)||String(a.studentId).localeCompare(String(b.studentId),'en',{numeric:true}));
   }
-  return {clean, roster, summarize, submissions, sortMembers};
+  function problemSubmissions(raw, members, problemId) {
+    if (!Array.isArray(raw)) throw new Error('提交记录格式不匹配。');
+    const byUser = new Map(members.filter(m => m.status === 'matched' && m.userId).map(m => [String(m.userId), m]));
+    const seen = new Set();
+    return raw.filter(s => s.result === 'AC' && String(s.problem_id) === String(problemId)
+      && byUser.has(String(s.creator_id ?? s.creator?.id)) && /^[1-9]\d*$/.test(String(s.id)))
+      .filter(s => {if (seen.has(String(s.id))) return false; seen.add(String(s.id)); return true;})
+      .sort((a,b) => Number(b.id) - Number(a.id))
+      .map(submission => ({submission, member: byUser.get(String(submission.creator_id ?? submission.creator?.id))}));
+  }
+  return {clean, roster, summarize, submissions, sortMembers, problemSubmissions};
 }

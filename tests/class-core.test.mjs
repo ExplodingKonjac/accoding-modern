@@ -34,3 +34,24 @@ test('submission selection uses account id, deduplicates and orders newest first
   const rows=core.submissions([{id:1,creator_id:1},{id:2,creator:{id:1}},{id:3,creator_id:2},{id:2,creator_id:1}],'1');
   assert.deepEqual(rows.map(r=>r.id),[2,1]);
 });
+test('problem AC selection uses matched class accounts and exact problem IDs, keeps all AC attempts newest first',()=>{
+  const students=[{studentId:'001',name:'同名',status:'matched',userId:'1'},{studentId:'002',name:'同名',status:'matched',userId:'2'},{studentId:'003',status:'ambiguous',userId:'3'},{studentId:'004',status:'missing',userId:null}];
+  const raw=[
+    {id:1,creator_id:1,problem_id:99,result:'AC'},
+    {id:2,creator:{id:2},problem_id:'99',result:'AC'},
+    {id:3,creator_id:'1',problem_id:'99',result:'AC'},
+    {id:'3',creator_id:1,problem_id:99,result:'AC'},
+    {id:4,creator_id:1,problem_id:99,result:'WA'},
+    {id:5,creator_id:1,problem_id:99,result:'JG'},
+    {id:6,creator_id:1,problem_id:98,result:'AC'},
+    {id:7,creator_id:9,problem_id:99,result:'AC'},
+    {id:8,creator_id:3,problem_id:99,result:'AC'},
+    {id:9,creator_id:null,problem_id:99,result:'AC'},
+    {id:'invalid',creator_id:1,problem_id:99,result:'AC'}
+  ];
+  assert.deepEqual(core.problemSubmissions(raw,students,'99').map(r=>[r.submission.id,r.member.studentId]),[[3,'001'],[2,'002'],[1,'001']]);
+  assert.equal(raw[0].id,1);
+  assert.deepEqual(core.problemSubmissions(raw,students,'100'),[]);
+  assert.deepEqual(core.problemSubmissions(raw,[],'99'),[]);
+  assert.throws(()=>core.problemSubmissions({error:'denied'},students,'99'),/格式/);
+});

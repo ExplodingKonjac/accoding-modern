@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.10.0
-// @description  界面美化、班级名册、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
+// @version      1.11.1
+// @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @run-at       document-end
 // @grant        none
@@ -1136,7 +1136,17 @@ function createClassCore() {
     const score=m=>m.userId ? (m.during ?? m.accepted ?? -1) : -1;
     return [...rows].sort((a,b)=>score(b)-score(a)||String(a.studentId).localeCompare(String(b.studentId),'en',{numeric:true}));
   }
-  return {clean, roster, summarize, submissions, sortMembers};
+  function problemSubmissions(raw, members, problemId) {
+    if (!Array.isArray(raw)) throw new Error('提交记录格式不匹配。');
+    const byUser = new Map(members.filter(m => m.status === 'matched' && m.userId).map(m => [String(m.userId), m]));
+    const seen = new Set();
+    return raw.filter(s => s.result === 'AC' && String(s.problem_id) === String(problemId)
+      && byUser.has(String(s.creator_id ?? s.creator?.id)) && /^[1-9]\d*$/.test(String(s.id)))
+      .filter(s => {if (seen.has(String(s.id))) return false; seen.add(String(s.id)); return true;})
+      .sort((a,b) => Number(b.id) - Number(a.id))
+      .map(submission => ({submission, member: byUser.get(String(submission.creator_id ?? submission.creator?.id))}));
+  }
+  return {clean, roster, summarize, submissions, sortMembers, problemSubmissions};
 }
 
 // Local OOXML reader: shared strings, inline strings, cached formula values, multiple sheets.
@@ -1372,13 +1382,14 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
   </style>
   <button class="launch" type="button">▦ 班级</button>
   <section class="overlay" hidden role="dialog" aria-modal="true" aria-label="班级管理">
-    <div class="shell"><header class="top"><div><div class="eyebrow">ACCODING · CLASSROOM</div><h1>班级</h1><span class="tag">1.10.0</span></div><button data-action="close">← 返回 OJ</button></header>
+    <div class="shell"><header class="top"><div><div class="eyebrow">ACCODING · CLASSROOM</div><h1>班级</h1><span class="tag">1.11.1</span></div><button data-action="close">← 返回 OJ</button></header>
     <div class="toolbar"><div class="row"><select id="class-select" aria-label="选择班级"></select><button data-action="import">＋ 导入名册</button></div><div class="row"><button data-action="rename">重命名</button><button data-action="export">导出名册 CSV</button><button class="danger" data-action="delete">删除班级</button></div></div>
     <div id="message" class="message" role="status" aria-live="polite" hidden></div>
     <section id="import-panel" class="panel" hidden><h2>从 Excel 创建班级</h2><div class="row"><input id="file" type="file" accept=".xlsx" aria-label="选择 XLSX 名册"><label>工作表 <select id="sheet" disabled></select></label><label>班级名称 <input id="class-name" maxlength="80" placeholder="例如：26 秋程设 · 王君臣"></label><button class="primary" data-action="create" disabled>确认创建</button><button data-action="cancel-import">取消</button></div><div id="preview" class="preview"></div></section>
     <div id="empty" class="panel empty">导入一份 XLSX 名册，开始查看班级学习情况。</div>
     <main id="workspace" hidden><section class="panel"><div class="toolbar"><div><h2>比赛学习情况</h2></div><div class="row"><select id="contest-select" class="wide" aria-label="选择比赛"><option value="">选择可见比赛</option></select><input id="contest-id" inputmode="numeric" placeholder="或输入比赛 ID" size="12" aria-label="比赛 ID"><button class="primary" data-action="load">读取比赛</button><button data-action="refresh">刷新统计</button></div></div><p id="contest-title" class="muted"></p></section><div class="row" role="tablist" aria-label="班级比赛页面"><button id="contest-tab" data-action="contest-tab" role="tab" aria-selected="true" aria-controls="contest-pane" class="primary">比赛统计</button><button id="upsolve-tab" data-action="upsolve-tab" role="tab" aria-selected="false" aria-controls="upsolve-pane">补题排行榜</button><button id="review-tab" data-action="review-tab" role="tab" aria-selected="false" aria-controls="review-pane">代码复核</button></div><section id="review-pane" class="panel" role="tabpanel" aria-labelledby="review-tab" hidden></section><div id="contest-pane" role="tabpanel" aria-labelledby="contest-tab">
     <div id="metrics" class="cards"></div><section id="stats-panel" class="panel" hidden><div class="toolbar"><h2>逐题通过情况</h2><span id="chart-legend" class="muted">蓝色：通过人数　浅蓝：尝试人数</span></div><div id="chart" class="chart"></div></section>
+    <section id="accepted-panel" class="panel" hidden><div class="toolbar"><h2>按题查看通过提交</h2><div class="row"><select id="accepted-problem" aria-label="选择通过提交的题目"><option value="">选择一道题</option></select><input id="accepted-search" placeholder="搜索姓名、学号、班级" aria-label="搜索通过同学"><select id="accepted-mode" aria-label="通过提交显示方式"><option value="latest">每人最新一条 AC</option><option value="all">全部 AC 提交</option></select><button data-action="refresh-accepted" disabled>刷新通过提交</button></div></div><p class="muted">仅显示本班同学在比赛时间内的 AC 提交。</p><p id="accepted-count" class="muted" role="status" aria-live="polite"></p><div id="accepted-table" class="table-wrap"></div><div id="accepted-pager" class="pager"></div></section>
     <section class="panel"><div class="toolbar"><h2>班级同学</h2><div class="row"><input id="search" placeholder="搜索姓名、学号、班级" aria-label="搜索学生"><select id="member-filter" aria-label="筛选学生"><option value="all">全部同学</option><option value="matched">已匹配</option><option value="missing">榜单未找到</option><option value="ambiguous">学号冲突</option></select></div></div><div id="members" class="table-wrap"></div><div id="member-pager" class="pager"></div></section>
     </div><section id="upsolve-pane" class="panel" role="tabpanel" aria-labelledby="upsolve-tab" hidden><div class="toolbar"><h2>补题排行榜</h2><div class="row"><label>截止时间 <input id="upsolve-until" type="datetime-local" step="1" aria-label="补题截止时间" title="留空查询至当前时间（北京时间）"></label><button data-action="upsolve" disabled class="primary">更新排行榜</button><button data-action="cancel-upsolve" hidden>取消查询</button></div></div><div class="toolbar" style="margin:12px 0"><div class="row"><select id="ranking-order" aria-label="排名依据"><option value="upsolved">按赛后补过排名</option><option value="total">按累计通过排名</option></select><input id="ranking-search" placeholder="搜索姓名、学号" aria-label="搜索排行榜学生"></div><span id="upsolve-time" class="muted"></span></div><div id="rank-table" class="table-wrap"><div class="empty">读取比赛后，更新补题排行榜。</div></div><div id="rank-pager" class="pager"></div></section>
     <section id="student-panel" class="panel" hidden><div class="student-head"><div><h2 id="student-title"></h2></div><div class="row"><select id="submission-scope" aria-label="提交范围"><option value="contest">赛内提交</option><option value="upsolve" disabled>赛后提交</option><option value="all" disabled>全部提交</option></select><select id="problem-filter" aria-label="筛选题目"><option value="all">全部题目</option></select><select id="result-filter" aria-label="筛选提交结果"><option value="all">全部结果</option><option value="AC">仅通过</option><option value="failed">未通过（已评测）</option><option value="pending">评测中</option></select><button data-action="refresh-submissions">刷新提交</button><button data-action="close-student">收起</button></div></div><div id="student-problems" class="table-wrap" hidden style="margin:16px 0"></div><div id="submissions" class="table-wrap"></div><div id="submission-pager" class="pager"></div></section></main>
@@ -1389,6 +1400,7 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
   let classes = [], currentId = '', sheets = [], preview = null, contest = null, rank = null, summary = null;
   let activeStudent = null, submissionCache = null, memberPage = 0, submissionPage = 0, generation = 0;
   let rankController = null, subController = null, dialogAction = null, opener = null;
+  let submissionRequest = null, submissionError = '', acceptedPage = 0;
   let clockOffset = 0;
   let upsolve = null, upsolveController = null, pageMode = 'contest', rankingPage = 0;
   const isUpsolve = () => pageMode === 'upsolve';
@@ -1424,6 +1436,9 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     reviewPanel.reset();
     generation++; upsolveController?.abort();upsolveController=null;upsolve=null;rankingPage=0;drawStandings();$('#upsolve-time').textContent='';$('[data-action=upsolve]').disabled=true;$('[data-action=cancel-upsolve]').hidden=true;$('#submission-scope').value='contest';for(const o of $('#submission-scope').options)o.disabled=o.value!=='contest';$('#student-problems').hidden=true; rankController?.abort(); subController?.abort(); rankController = subController = null;
     contest = rank = summary = activeStudent = submissionCache = null; memberPage = submissionPage = 0;
+    submissionRequest=null;submissionError='';acceptedPage=0;
+    $('#accepted-panel').hidden=true;$('#accepted-problem').replaceChildren(option('','选择一道题'));
+    $('#accepted-search').value='';drawAccepted();
     $('#student-panel').hidden = $('#stats-panel').hidden = true; $('#contest-title').textContent = '';
     $('[data-action="load"]').disabled = $('[data-action="refresh"]').disabled = false;
   }
@@ -1446,7 +1461,9 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
       const card=el('div',null,'problem'), bar=el('div',null,'bar'), tried=el('i'), ac=el('em'), counts=el('div',null,'counts');
       tried.style.width=`${100*p.tried/c.members.length}%`; ac.style.width=`${100*p.accepted/c.members.length}%`; bar.append(tried,ac);
       counts.append(el('span',`${p.accepted} 人通过`),el('span',`${p.tried} 人尝试`));
-      card.append(el('b',p.label),el('small',p.title),bar,counts); card.title=p.title;return card;
+      const view=button('查看通过提交',()=>{ $('#accepted-problem').value=p.id;$('#accepted-problem').dispatchEvent(new Event('change'));$('#accepted-panel').scrollIntoView({behavior:'smooth',block:'start'}); });
+      view.style.marginTop='10px';view.setAttribute('aria-label',`查看 ${p.label} 题的通过提交`);
+      card.append(el('b',p.label),el('small',p.title),bar,counts,view); card.title=p.title;return card;
     }));
   }
   function drawMembers() {
@@ -1514,6 +1531,9 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
       if(token!==generation)return;
       const result=core.summarize(selected().members,data,c.problems);
       contest=c;rank=data;summary=result;
+      $('#accepted-panel').hidden=false;
+      $('#accepted-problem').replaceChildren(option('','选择一道题'),...c.problems.map(p=>option(p.id,p.label+' · '+p.title)));
+      drawAccepted();
       if(pageMode==='review')reviewPanel.setActive(true);
       $('[data-action=upsolve]').disabled=Date.now()+clockOffset<c.end;
       $('#contest-title').textContent=`${c.title} · ${contestCore.phase(c,Date.now()+clockOffset).text} · ${new Date().toLocaleTimeString()} 更新`;
@@ -1538,7 +1558,47 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
   }
   function codeLink(id) {
     if(!/^[1-9]\d*$/.test(String(id)))return el('span','—');
-    const a=el('a','查看代码');a.href=`/submission/${id}`;a.target='_blank';a.rel='noopener noreferrer';return a;
+    const a=el('a','查看代码');a.href=`/submission/${id}`;a.target='_blank';a.rel='noopener noreferrer';a.setAttribute('aria-label',`查看提交 ${id} 的代码`);return a;
+  }
+  function contestSubmissions() {
+    return (submissionCache||[]).filter(s=>contestCore.time(s.created_at)>=contest.start&&contestCore.time(s.created_at)<contest.end);
+  }
+  function acceptedRows() {
+    if(!summary||!submissionCache||!$('#accepted-problem').value)return [];
+    const query=$('#accepted-search').value.trim().toLowerCase();
+    return core.problemSubmissions(contestSubmissions(),summary.rows,$('#accepted-problem').value)
+      .filter(({member:m})=>`${m.name} ${m.studentId} ${m.group||''}`.toLowerCase().includes(query));
+  }
+  function acceptedStudents(rows) {
+    // Rows are newest first; each student receives one entry, regardless of AC count.
+    const seen=new Set();
+    return rows.filter(row=>{const id=row.member.userId;if(seen.has(id))return false;seen.add(id);return true;});
+  }
+  function drawAccepted() {
+    const ready=!!(contest&&summary&&$('#accepted-problem').value);
+    $('[data-action=refresh-accepted]').disabled=!ready||!!subController;
+    $('#accepted-count').textContent='';$('#accepted-pager').replaceChildren();
+    if(!ready||!submissionCache){
+      $('#accepted-table').replaceChildren(el('p',!ready?'选择一道题，查看本班通过同学的提交记录。':submissionError||'正在读取本场比赛的提交记录…',submissionError&&ready?'bad':'muted'));
+      return;
+    }
+    const all=acceptedRows(), students=acceptedStudents(all), rows=$('#accepted-mode').value==='all'?all:students;
+    $('#accepted-count').textContent=`${students.length} 位同学 · ${all.length} 条 AC 提交 · 当前显示 ${rows.length} 条`;
+    acceptedPage=Math.min(acceptedPage,Math.max(0,Math.ceil(rows.length/30)-1));
+    $('#accepted-table').replaceChildren(table(['学号','姓名','行政班级','提交 ID','结果','语言','提交时间','代码','记录'],rows.slice(acceptedPage*30,acceptedPage*30+30).map(({member:m,submission:s})=>[
+      m.studentId,m.name,m.group||'—',s.id,el('span','AC','ac'),s.lang,new Date(s.created_at).toLocaleString(),codeLink(s.id),button('查看该题全部提交',()=>showAcceptedStudent(m))
+    ])));
+    pager($('#accepted-pager'),rows.length,acceptedPage,page=>{acceptedPage=page;drawAccepted();});
+  }
+  function showAcceptedStudent(member) {
+    void showStudent(member);
+    $('#problem-filter').value=$('#accepted-problem').value;$('#result-filter').value='all';drawSubmissions();
+  }
+  async function showAccepted(force=false) {
+    acceptedPage=0;
+    if(!contest||!summary||!$('#accepted-problem').value){drawAccepted();return;}
+    await loadSubmissionCache(force);
+    drawAccepted();
   }
   function drawStudentProblems() {
     const member=upsolve?.rows.find(m=>m.studentId===activeStudent?.studentId);
@@ -1584,11 +1644,17 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     if(!preserveScope){$('#submission-scope').value=isUpsolve()?'upsolve':'contest';$('#problem-filter').replaceChildren(option('all','全部题目'),...contest.problems.map(p=>option(p.id,p.label+' · '+p.title)));}
     drawStudentProblems();
     if($('#submission-scope').value==='upsolve'&&upsolve){drawSubmissions();return;}
-    if(submissionCache&&!force){drawSubmissions();return;}
+    await loadSubmissionCache(force);
+    drawSubmissions();
+  }
+  async function loadSubmissionCache(force=false) {
+    if(submissionRequest&&!force)return submissionRequest;
+    if(submissionCache&&!force)return;
+    if(!contest||!summary)return;
     subController?.abort();const controller=new AbortController();subController=controller;const token=generation, cid=contest.id;
-    $('#submissions').replaceChildren(el('p','正在读取本场比赛的提交记录…','muted'));$('#submission-pager').replaceChildren();
+    submissionCache=null;submissionError='';drawAccepted();drawSubmissions();
     const timeout=setTimeout(()=>controller.abort(),45000);
-    try {
+    submissionRequest=(async()=>{try {
       // Original Angular factory requests latest=0 for its initial complete submission feed.
       const data=await readJson(`/api/contests/${cid}/submissions?latest=0`,controller.signal);
       if(token!==generation||subController!==controller)return;
@@ -1596,17 +1662,18 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
       // Discard non-roster users and judge detail/source fields immediately.
       const ids=new Set(summary.rows.filter(m=>m.userId).map(m=>m.userId));
       submissionCache=data.filter(s=>ids.has(String(s.creator_id??s.creator?.id))).map(s=>({id:s.id,creator_id:s.creator_id??s.creator?.id,problem_id:s.problem_id,result:s.result,lang:s.lang,score:s.score,created_at:s.created_at}));
-      drawSubmissions();
-    }catch(e){if(token===generation&&subController===controller)$('#submissions').replaceChildren(el('p',e.name==='AbortError'?'读取超时，请点击“刷新提交”重试。':e.message,'bad'));}
-    finally{clearTimeout(timeout);if(subController===controller)subController=null;}
+    }catch(e){if(token===generation&&subController===controller)submissionError=e.name==='AbortError'?'读取超时，请点击刷新重试。':e.message;}
+    finally{clearTimeout(timeout);if(subController===controller){subController=null;submissionRequest=null;drawSubmissions();drawAccepted();}}
+    })();
+    return submissionRequest;
   }
   function drawSubmissions() {
     if(!activeStudent)return;
     const scope=$('#submission-scope').value;
-    if(scope!=='upsolve'&&!submissionCache)return;
+    if(scope!=='upsolve'&&!submissionCache){$('#submissions').replaceChildren(el('p',submissionError||'正在读取本场比赛的提交记录…',submissionError?'bad':'muted'));$('#submission-pager').replaceChildren();return;}
     const filter=$('#result-filter').value;
     const post=upsolve?.records||[];
-    const during=(submissionCache||[]).filter(s=>contestCore.time(s.created_at)>=contest.start&&contestCore.time(s.created_at)<contest.end);
+    const during=contestSubmissions();
     const all=core.submissions(scope==='upsolve'?post:scope==='all'?[...post,...during]:during,activeStudent.userId), pending=s=>['WT','JG'].includes(s.result)||!s.result;
     const rows=all.filter(s=>($('#problem-filter').value==='all'||String(s.problem_id)===$('#problem-filter').value)&&(filter==='all'||filter==='AC'&&s.result==='AC'||filter==='pending'&&pending(s)||filter==='failed'&&s.result!=='AC'&&!pending(s)));
     submissionPage=Math.min(submissionPage,Math.max(0,Math.ceil(rows.length/30)-1));
@@ -1640,6 +1707,8 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
   $('#contest-select').onchange=()=>{$('#contest-id').value='';resetContest();drawClasses();};
   $('#search').oninput=$('#member-filter').onchange=()=>{memberPage=0;drawMembers();};
   $('#result-filter').onchange=$('#problem-filter').onchange=()=>{submissionPage=0;drawSubmissions();};
+  $('#accepted-problem').onchange=()=>{activeStudent=null;$('#student-panel').hidden=true;void showAccepted();};
+  $('#accepted-search').oninput=$('#accepted-mode').onchange=()=>{acceptedPage=0;drawAccepted();};
   function showDialog(title,text,value,action){$('#dialog-title').textContent=title;$('#dialog-text').textContent=text;$('#dialog-input').hidden=value===null;$('#dialog-input').value=value||'';dialogAction=action;$('#confirm-dialog').showModal();if(value!==null)$('#dialog-input').focus();}
   root.addEventListener('click',event=>{
     const action=event.target.closest('[data-action]')?.dataset.action;if(!action)return;
@@ -1663,6 +1732,7 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
       if(action==='load'||action==='refresh')void loadContest();
       if(action==='refresh-submissions'&&activeStudent){if($('#submission-scope').value!=='contest')void loadUpsolve();else void showStudent(activeStudent,true,true);}
       if(action==='upsolve')void loadUpsolve();
+      if(action==='refresh-accepted')void showAccepted(true);
       if(['contest-tab','upsolve-tab','review-tab'].includes(action))switchPane(action.replace('-tab',''));
       if(action==='cancel-upsolve')upsolveController?.abort();
       if(action==='close-student'){$('#student-panel').hidden=true;activeStudent=null;}
