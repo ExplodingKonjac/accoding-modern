@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.15.1
+// @version      1.15.2
 // @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @run-at       document-end
@@ -14,7 +14,7 @@
 
 (() => {
 'use strict';
-const ACCODING_MODERN_VERSION="1.15.1";
+const ACCODING_MODERN_VERSION="1.15.2";
 if (location.origin !== 'https://accoding.buaa.edu.cn:4000') return;
 function createContestCore() {
   const decode = value => {
@@ -1920,25 +1920,35 @@ function createUpdateChecker({version,storage,fetchImpl=fetch,now=Date.now}) {
   const key='accoding-modern.updates.v1',interval=6*60*60*1000,retry=30*60*1000;
   const valid=v=>typeof v==='string'&&/^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(v);
   if(!valid(version))throw new Error('无效的当前版本');
-  const newer=v=>{const a=v.split('.').map(Number),b=version.split('.').map(Number);for(let i=0;i<3;i++)if(a[i]!==b[i])return a[i]>b[i];return false;};
-  let memory={},pending=null;
+  const compare=(left,right)=>{const a=left.split('.').map(Number),b=right.split('.').map(Number);for(let i=0;i<3;i++)if(a[i]!==b[i])return a[i]-b[i];return 0;};
+  const newer=v=>compare(v,version)>0;
+  let memory={},pending=null,pendingForced=false,requestNumber=0;
+  const cacheNonce=Math.random().toString(36).slice(2);
   function read(){try{const v=JSON.parse(storage?.getItem(key)||'null');if(v&&typeof v==='object'&&!Array.isArray(v))memory=v;}catch{}return {...memory};}
   function write(value){memory=value;try{storage?.setItem(key,JSON.stringify(value));}catch{}}
-  function result(state,cached){return {currentVersion:version,latestVersion:state.latestVersion||null,available:valid(state.latestVersion)&&newer(state.latestVersion),cached,error:state.error||null,installUrl,releaseUrl,dismissed:state.dismissedVersion===state.latestVersion&&state.dismissedUntil>now()};}
+  function result(state,cached){return {currentVersion:version,latestVersion:state.latestVersion||null,available:valid(state.latestVersion)&&newer(state.latestVersion),cached,error:state.error||null,checkedAt:state.checkedAt||null,installUrl:valid(state.latestVersion)?installUrl+'?version='+encodeURIComponent(state.latestVersion):installUrl,releaseUrl,dismissed:state.dismissedVersion===state.latestVersion&&state.dismissedUntil>now()};}
   async function check(force=false){
-    if(pending)return pending;
+    if(pending){
+      if(!force||pendingForced)return pending;
+      // A manual click must obtain a fresh response after an automatic check.
+      await pending;return check(true);
+    }
     const state=read(),time=now();
     if(!force&&Number.isFinite(state.nextCheck)&&state.nextCheck>time&&state.nextCheck-time<=interval)return result(state,true);
+    pendingForced=force;
     pending=(async()=>{
       const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
       try{
-        const response=await fetchImpl(manifestUrl,{credentials:'omit',referrerPolicy:'no-referrer',cache:'no-cache',signal:controller.signal});
+        const url=manifestUrl+'?check='+encodeURIComponent(time+'-'+cacheNonce+'-'+(++requestNumber));
+        const response=await fetchImpl(url,{credentials:'omit',referrerPolicy:'no-referrer',cache:'no-store',signal:controller.signal});
         if(!response.ok)throw new Error('无法读取更新信息');
         const data=await response.json();if(!valid(data?.version))throw new Error('更新信息格式无效');
+        const prior=read();
+        if(compare(data.version,version)<0||(valid(prior.latestVersion)&&compare(data.version,prior.latestVersion)<0))throw new Error('更新源尚未刷新');
         const next={...read(),latestVersion:data.version,checkedAt:time,nextCheck:time+interval,error:null};write(next);return result(next,false);
       }catch{
         const next={...read(),nextCheck:time+retry,error:'暂时无法检查更新，请稍后重试。'};write(next);return result(next,false);
-      }finally{clearTimeout(timer);pending=null;}
+      }finally{clearTimeout(timer);pending=null;pendingForced=false;}
     })();
     return pending;
   }
@@ -1954,20 +1964,24 @@ function mountUpdateNotice(version) {
   const root=host.attachShadow({mode:'open'});
   root.innerHTML='<style>:host{all:initial;font:14px/1.5 system-ui;color:#25344b}section{position:fixed;left:20px;bottom:20px;z-index:2147483600;max-width:min(390px,calc(100vw - 72px));padding:16px;background:#fff;border:1px solid #c9d8ee;border-radius:12px;box-shadow:0 6px 30px #17253a33}section[hidden]{display:none}p{margin:0 0 10px}.actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}a{color:#235de4;text-decoration:none}button{font:inherit;color:#52647e;background:#f2f5fa;border:1px solid #d9e2ee;border-radius:6px;padding:5px 10px;cursor:pointer}</style><section hidden aria-label="脚本更新" role="status"><p></p><div class="actions"></div></section>';
   const box=root.querySelector('section'),message=root.querySelector('p'),actions=root.querySelector('.actions');
+  let feedback;
   function show(result,manual){
     if(!manual&&(!result.available||result.dismissed))return;
     actions.replaceChildren();
-    message.textContent=result.available?`Accoding Modern ${result.latestVersion} 已发布，当前为 ${version}。`:result.error||`当前已是最新版 ${version}。`;
-    if(result.available){
-      for(const [text,url] of [['立即更新',result.installUrl],['更新说明',result.releaseUrl]]){const a=document.createElement('a');a.textContent=text;a.href=url;a.target='_blank';a.rel='noopener noreferrer';actions.append(a);}
+    message.textContent=result.error?`当前 ${version}。本次检查失败。${result.available?'上次查到 '+result.latestVersion+'，可打开安装页核对。':'可直接打开安装页，或稍后重试。'}`:result.available?`发现 ${result.latestVersion}，当前为 ${version}。点击“立即更新”后，请在篡改猴中确认安装，再刷新 OJ 页面。`:`检查成功，当前已是最新版 ${version}。`;
+    if(feedback&&manual)feedback.textContent=result.error?`当前 ${version} · 检查失败`:result.available?`当前 ${version} · 可更新至 ${result.latestVersion}`:`当前 ${version} · 已是最新版`;
+    if(result.available||result.error){
+      for(const [text,url] of [[result.error?'打开更新安装页':'立即更新',result.installUrl],['更新说明',result.releaseUrl]]){const a=document.createElement('a');a.textContent=text;a.href=url;a.target='_blank';a.rel='noopener noreferrer';actions.append(a);}
     }
     const close=document.createElement('button');close.type='button';close.textContent=result.available?'稍后':'关闭';close.onclick=()=>{box.hidden=true;if(result.available)checker.dismiss(result.latestVersion);};actions.append(close);box.hidden=false;
   }
   const classRoot=document.querySelector('#am-classes')?.shadowRoot;
   if(classRoot){
     const button=document.createElement('button');button.type='button';button.textContent='检查更新';button.dataset.action='check-script-update';
-    button.onclick=async()=>{button.disabled=true;button.textContent='正在检查…';try{show(await checker.check(true),true);}finally{button.disabled=false;button.textContent='检查更新';}};
+    feedback=document.createElement('span');feedback.setAttribute('role','status');feedback.style.cssText='font-size:13px;color:#52647e;margin-left:8px';
+    button.onclick=async()=>{button.disabled=true;button.textContent='正在检查…';feedback.textContent=`当前 ${version} · 正在联网检查`;try{show(await checker.check(true),true);}finally{button.disabled=false;button.textContent='检查更新';}};
     classRoot.querySelector('header .tag').after(button);
+    button.after(feedback);
   }
   void checker.check().then(result=>show(result,false));
 }
