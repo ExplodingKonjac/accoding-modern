@@ -63,7 +63,7 @@ test('v4 progress, search and details work without reading or sending a saved to
   const calls=[];
   const client=core.featureClient(()=>{throw new Error('Must not read credentials');},async(url,options)=>{
     calls.push({url,options});
-    const reply=url.endsWith('/progress')||url.endsWith('/runs')?{runs:[{run_id:'run-one',contest_id:1299,configuration_sha256:'b'.repeat(64)}]}:
+    const reply=new URL(url).pathname.endsWith('/progress')||new URL(url).pathname.endsWith('/runs')?{runs:[{run_id:'run-one',contest_id:1299,configuration_sha256:'b'.repeat(64)}]}:
       url.endsWith('/search')?{run_id:'run-one',total:1,reviews:[featurePositive]}:featurePositive;
     return {ok:true,json:async()=>reply};
   },4);
@@ -72,4 +72,14 @@ test('v4 progress, search and details work without reading or sending a saved to
   await client.detail('1','run-one');
   assert.equal(calls.length,4);
   for(const {url,options} of calls){assert.match(url,/\/oj-review-api\/v4\//);assert.equal(options.headers.Authorization,undefined);assert.equal(options.credentials,'omit');}
+});
+
+test('rule suspects share the review list without fabricated model receipts',()=>{
+  const suspect={decision_kind:'rule_feature_candidate',rule_version:'rules-v7',call_id:null,
+    configuration_sha256:'a'.repeat(64),code_hash:'b'.repeat(64),run_id:'e1',
+    result:{ai_suspected:true,label:['代码结构大幅变化'],reason:'current:2-8 两次提交的结构发生明显变化。'}};
+  assert.equal(core.hasFeatureReview(suspect),true);
+  assert.equal(core.hasFeatureReview({...suspect,call_id:'fake-model'}),false);
+  assert.equal(core.hasFeatureReview({...suspect,rule_version:''}),false);
+  assert.equal(core.hasFeatureReview({...suspect,result:{...suspect.result,ai_suspected:false}}),false);
 });

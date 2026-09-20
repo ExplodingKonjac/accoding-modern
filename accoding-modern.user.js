@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.14.1
+// @version      1.15.0
 // @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @run-at       document-end
@@ -14,7 +14,7 @@
 
 (() => {
 'use strict';
-const ACCODING_MODERN_VERSION="1.14.1";
+const ACCODING_MODERN_VERSION="1.15.0";
 if (location.origin !== 'https://accoding.buaa.edu.cn:4000') return;
 function createContestCore() {
   const decode = value => {
@@ -1235,11 +1235,11 @@ function createAiReviewCore() {
   const api='https://muzermat.online:8443/oj-review-api/v2';
   const apiV4='https://muzermat.online:8443/oj-review-api/v4';
   const apiV3='https://muzermat.online:8443/oj-review-api/v3';
-  const featureLabels=['输入失败防护','讲解性注释','编号步骤','对答式注释','模板化说明','注释密集','生成回答残留','短时间大幅改写','短时间码风突变'];
+  const featureLabels=['输入失败防护','讲解性注释','编号步骤','对答式注释','模板化说明','注释密集','生成回答残留','短时间大幅改写','短时间码风突变','注释表达特征','模型来源注释','代码结构大幅变化','跨题码风变化','罕见共同代码片段'];
   const selections={candidate:'候选复核',sample:'连续提交抽样',manual:'单独复核'};
   const states={paused:'已暂停',running:'正在复核',completed:'复核完成',completed_with_errors:'已结束，部分失败',failed:'运行失败'};
   const hash=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
-  function hasFeatureReview(r){const d=r?.result;return r?.decision_kind==='llm_feature_presence'&&(hash(r.model_digest)||(r.backend_kind==='remote_api'&&r.model_digest===null&&hash(r.execution_config_sha256)&&typeof r.requested_model==='string'))&&hash(r.configuration_sha256)&&hash(r.code_hash)&&typeof r.run_id==='string'&&!!r.run_id&&d?.ai_suspected===true&&Object.keys(d).sort().join(',')==='ai_suspected,label,reason'&&typeof d.reason==='string'&&!!d.reason.trim()&&Array.isArray(d.label)&&d.label.length>0&&new Set(d.label).size===d.label.length&&d.label.every(x=>featureLabels.includes(x));}
+  function hasFeatureReview(r){const d=r?.result;return ((r?.decision_kind==='rule_feature_candidate'&&typeof r.rule_version==='string'&&!!r.rule_version&&r.call_id===null)||(r?.decision_kind==='llm_feature_presence'&&(hash(r.model_digest)||(r.backend_kind==='remote_api'&&r.model_digest===null&&hash(r.execution_config_sha256)&&typeof r.requested_model==='string'))))&&hash(r.configuration_sha256)&&hash(r.code_hash)&&typeof r.run_id==='string'&&!!r.run_id&&d?.ai_suspected===true&&Object.keys(d).sort().join(',')==='ai_suspected,label,reason'&&typeof d.reason==='string'&&!!d.reason.trim()&&Array.isArray(d.label)&&d.label.length>0&&new Set(d.label).size===d.label.length&&d.label.every(x=>featureLabels.includes(x));}
   async function verifySource(code,expected){if(typeof code!=='string'||!hash(expected))throw new Error('源码或校验摘要缺失');const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(code));const actual=[...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,'0')).join('');if(actual!==expected)throw new Error('源码哈希与核查时不一致，请打开 OJ 原提交人工核验。');return code;}
   async function sourceFromOj(text,id,expected){
     const header=text.match(/^\/\*[\s\S]*?\*\//),candidates=[text];
@@ -1282,10 +1282,10 @@ function createAiReviewCore() {
     async function runs(path,signal,contest){const r=await request(path,null,signal);if(!Array.isArray(r.runs)||r.runs.some(x=>typeof x.run_id!=='string'||!hash(x.configuration_sha256)||(contest!==undefined&&x.contest_id!==Number(contest))))throw new Error('运行清单格式或比赛不一致');return r;}
     return {
       progress:(contest,signal)=>runs(`/contests/${encodeURIComponent(contest)}/progress`,signal,contest),
-      submissionRuns:(id,signal)=>runs(`/submissions/${encodeURIComponent(id)}/runs`,signal),
-      async detail(id,runId,signal){if(!runId)throw new Error('请先选择核查运行');const r=await request(`/runs/${encodeURIComponent(runId)}/submissions/${encodeURIComponent(id)}`,null,signal,true);if(r&&(!hasFeatureReview(r)||r.run_id!==runId||String(r.submission_id)!==String(id)))throw new Error('复核详情与所选运行或提交不一致');if(r)await verifySource(r.code,r.code_hash);return r;},
+      submissionRuns:(id,signal)=>runs(`/submissions/${encodeURIComponent(id)}/runs${version===4?'?include_candidates=true':''}`,signal),
+      async detail(id,runId,signal){if(!runId)throw new Error('请先选择核查运行');const r=await request(`/runs/${encodeURIComponent(runId)}/submissions/${encodeURIComponent(id)}${version===4?'?include_candidates=true':''}`,null,signal,true);if(r&&(!hasFeatureReview(r)||r.run_id!==runId||String(r.submission_id)!==String(id)))throw new Error('复核详情与所选运行或提交不一致');if(r)await verifySource(r.code,r.code_hash);return r;},
       async search(query,signal){
-        if(!query.run_id)throw new Error('请先选择核查运行');const r=await request('/reviews/search',query,signal);
+        if(!query.run_id)throw new Error('请先选择核查运行');const r=await request('/reviews/search',version===4?{...query,include_candidates:true}:query,signal);
         if(r.run_id!==query.run_id||!Array.isArray(r.reviews)||!Number.isInteger(r.total)||r.total<0||r.reviews.length>query.limit)throw new Error('复核 API 返回格式或运行无效');
         if(r.reviews.some(x=>!hasFeatureReview(x)||x.run_id!==query.run_id||x.contest_id!==query.contest_id||!query.creator_ids.includes(String(x.creator_id))))throw new Error('复核结果与当前运行或班级不一致');
         return r;
@@ -1309,8 +1309,8 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   const message=el('p','读取比赛后，打开代码复核。');message.setAttribute('role','status');
   const progress=el('p');progress.setAttribute('aria-live','polite');
   const list=el('div');list.className='table-wrap';const pager=el('div');pager.className='pager';const detail=el('section');detail.className='panel';detail.hidden=true;
-  const controls=el('div');controls.className='row';controls.append(problem,feature,selection,button('刷新结果',()=>void reload()),button('导出当前结果',()=>void exportRows()));
-  container.append(el('h2','代码复核'),controls,message,progress,list,pager,detail);
+  const controls=el('div');controls.className='row';controls.append(problem,button('刷新结果',()=>void reload()),button('导出当前结果',()=>void exportRows()));
+  container.append(el('h2','AI 嫌疑代码'),controls,message,progress,list,pager,detail);
   if(options.submissionId){message.hidden=problem.hidden=feature.hidden=selection.hidden=list.hidden=pager.hidden=true;controls.lastChild.hidden=true;}
   function client(){return apiFeatures;}
   function contextKey(){const c=getContext();return `${c.classId||''}:${c.contest?.id||''}:${c.generation}`;}
@@ -1320,7 +1320,7 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   function reset(){stop();rows=[];runs=[];total=page=0;runId='';detail.hidden=true;detail.replaceChildren();progress.textContent='';message.textContent='读取比赛后，打开代码复核。';draw();}
   function query(c,offset=page*size,limit=size){return {contest_id:Number(c.contest.id),creator_ids:[...core.members(c.summary.rows).keys()],offset,limit,run_id:runId,...(problem.value==='all'?{}:{problem_id:Number(problem.value)}),...(feature.value==='all'?{}:{label:feature.value}),...(selection.value==='all'?{}:{selection:selection.value})};}
   function fillRuns(values){runs=[...values].sort((a,b)=>(Number(b.created_at)||0)-(Number(a.created_at)||0)||b.run_id.localeCompare(a.run_id));const latest=runs[0]?.run_id||'';if(latest!==runId)page=0;runId=latest;}
-  function showProgress(b){progress.textContent=b?`${core.states[b.state]||b.state} · ${b.requested_model||b.model_name||''}${b.requested_thinking_level?' / '+b.requested_thinking_level:''}${b.policy_version==='feature-presence-if-only-v2'?' · 输入防护仅限 if，排除 while 输入循环':''} · 已完成 ${b.completed} / ${b.selected} · 命中特征 ${b.suspected} · 未命中 ${b.negative} · 失败 ${b.failed} · 待处理 ${b.pending}${b.reported_at?' · 上次报告 '+new Date(b.reported_at*1000).toLocaleString():''}${b.state==='running'&&b.reported_at&&Date.now()/1000-b.reported_at>300?'（进度超过 5 分钟未更新）':''}`:options.submissionId?'此提交尚无已发布的当前方案命中结果。':'尚无当前方案核查运行。';}
+  function showProgress(b){if(b?.screening){progress.textContent=`${b.screening.complete?'筛查完成':'正在同步'} · 已筛查 ${b.screening.total_sources} 份代码 · AI 嫌疑 ${b.suspect_total} 份 · 每人最多 ${b.screening.max_per_user} 份`;return;}progress.textContent=b?`${core.states[b.state]||b.state} · ${b.requested_model||b.model_name||''}${b.requested_thinking_level?' / '+b.requested_thinking_level:''}${b.policy_version==='feature-presence-if-only-v2'?' · 输入防护仅限 if，排除 while 输入循环':''} · 已完成 ${b.completed} / ${b.selected} · 命中特征 ${b.suspected} · 未命中 ${b.negative} · 失败 ${b.failed} · 待处理 ${b.pending}${b.reported_at?' · 上次报告 '+new Date(b.reported_at*1000).toLocaleString():''}${b.state==='running'&&b.reported_at&&Date.now()/1000-b.reported_at>300?'（进度超过 5 分钟未更新）':''}`:options.submissionId?'此提交尚无已发布的当前方案命中结果。':'尚无当前方案核查运行。';}
   async function refresh(){
     stop();const v=generation,k=contextKey(),c=getContext();detail.hidden=true;detail.replaceChildren();
     if(!active||!c.contest||!c.summary){message.textContent='请先读取比赛和榜单，再查看当前班级的代码复核。';return;}
@@ -1339,10 +1339,10 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
     finally{clearTimeout(timeout);if(controller===current)controller=null;}
   }
   function draw(){
-    const table=el('table'),thead=el('thead'),head=el('tr');['提交','学生','题目','提交时间','模型判断','代码特征','复核来源','详情'].forEach(t=>head.append(el('th',t)));thead.append(head);table.append(thead);
+    const table=el('table'),thead=el('thead'),head=el('tr');['提交','学生','题目','提交时间','判断','可疑特征','详情'].forEach(t=>head.append(el('th',t)));thead.append(head);table.append(thead);
     const body=el('tbody');for(const r of rows){
       const p=getContext().contest?.problems.find(p=>String(p.id)===String(r.problem_id)),tr=el('tr');
-      for(const text of [r.submission_id,`${r.member.name} · ${r.member.studentId}`,p?`${p.label} · ${p.title}`:r.problem_id,new Date(r.submitted_at).toLocaleString(),r.result?'true · 命中特征':'有 AI 生成嫌疑',(r.result?.label||r.labels).join('；')||'模型综合判断',core.selections[r.selection]])tr.append(el('td',text));
+      for(const text of [r.submission_id,`${r.member.name} · ${r.member.studentId}`,p?`${p.label} · ${p.title}`:r.problem_id,new Date(r.submitted_at).toLocaleString(),'有 AI 嫌疑',(r.result?.label||r.labels).join('；')||'可疑代码'])tr.append(el('td',text));
       const td=el('td');td.append(button('查看复核',()=>void openDetail(r.submission_id)));tr.append(td);body.append(tr);
     }
     table.append(body);list.replaceChildren(table);pager.replaceChildren(el('span',`共 ${total} 条 · ${page+1} / ${Math.max(1,Math.ceil(total/size))}`));
@@ -1359,7 +1359,7 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
       detail.replaceChildren(button('收起详情',()=>{detailVersion++;c.abort();detail.hidden=true;}),el('h3',`提交 ${id}`));
       if(!r){detail.append(el('p','所选方案暂无此提交的命中特征结果；未展示不代表已判定为 false。'));return;}
       const pre=text=>{const p=el('pre',text);p.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f7fb;padding:14px;max-height:500px;overflow:auto';return p;};
-      detail.append(el('p',r.result?'ai_suspected: true':'模型判断：有 AI 生成嫌疑'),el('p',r.result?'label: '+r.result.label.join('；'):r.labels.join('；')),el('p',r.result?'reason: '+r.result.reason:r.explanation),el('h3','本提交源码'),pre(r.code.split('\n').map((line,i)=>`${i+1}  ${line}`).join('\n')));
+      detail.append(el('p','有 AI 嫌疑'),el('p','可疑特征：'+(r.result?.label||r.labels).join('；')),el('p','可疑原因：'+(r.result?.reason||r.explanation)),el('h3','本提交源码'),pre(r.code.split('\n').map((line,i)=>`${i+1}  ${line}`).join('\n')));
       const references=r.context_references|| (r.previous_submission_id?[{submission_id:r.previous_submission_id,relation:'earlier'}]:[]);
       const unique=[...new Map(references.map(x=>[x.submission_id,x])).values()];
       for(const ref of unique){
@@ -1376,7 +1376,7 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
         });detail.append(el('h3',`${word}上下文核验`),load,a,comparison);
       }
       for(const e of r.evidence)detail.append(el('h3',`本提交证据 · 第 ${e.start_line}–${e.end_line} 行`),...(e.explanation?[el('p',e.explanation)]:[]),pre(e.quote));
-      detail.append(el('p',`模型：${r.reported_model||r.requested_model||r.model_name}${r.backend_kind==='remote_api'?'（API；请求 '+r.requested_model+'；思考 '+r.requested_thinking_level+'；共享调用 '+r.call_id+'）':''}；${r.run_id?'运行：'+r.run_id+'；提示：'+r.prompt_version:'历史批次：'+r.batch_id}`),el('p',`源码校验：${r.code_hash}`));
+      detail.append(el('p',r.decision_kind==='rule_feature_candidate'?`核查规则：${r.rule_version}`:`模型：${r.reported_model||r.requested_model||r.model_name}${r.backend_kind==='remote_api'?'（API；请求 '+r.requested_model+'；思考 '+r.requested_thinking_level+'；共享调用 '+r.call_id+'）':''}；${r.run_id?'运行：'+r.run_id+'；提示：'+r.prompt_version:'历史批次：'+r.batch_id}`),el('p',`源码校验：${r.code_hash}`));
       const mark=el('select');mark.setAttribute('aria-label','人工复核标记');for(const [value,text] of [['retained','保留复核'],['ordinary','普通写法'],['insufficient','信息不足']]){const o=el('option',text);o.value=value;mark.append(o);}
       const note=el('textarea');note.placeholder='人工复核备注（仅保存在本机）';note.style.width='100%';note.maxLength=3000;
       const oldId=String(id)+':'+r.code_hash,noteId=r.run_id?r.run_id+':'+oldId:oldId;let saved={};try{saved=JSON.parse(localStorage.getItem(noteKey)||'{}');}catch{}const prior=saved[noteId]||saved[oldId];if(prior){mark.value=prior.status;note.value=prior.note;}
