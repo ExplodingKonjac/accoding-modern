@@ -58,3 +58,18 @@ test('OJ metadata wrapper is removed only for the matching submission and frozen
   await assert.rejects(()=>core.sourceFromOj(header+code,'100',featurePositive.code_hash),/提交编号/);
   await assert.rejects(()=>core.sourceFromOj(header+code+'changed','99',featurePositive.code_hash),/哈希/);
 });
+
+test('v4 progress, search and details work without reading or sending a saved token',async()=>{
+  const calls=[];
+  const client=core.featureClient(()=>{throw new Error('Must not read credentials');},async(url,options)=>{
+    calls.push({url,options});
+    const reply=url.endsWith('/progress')||url.endsWith('/runs')?{runs:[{run_id:'run-one',contest_id:1299,configuration_sha256:'b'.repeat(64)}]}:
+      url.endsWith('/search')?{run_id:'run-one',total:1,reviews:[featurePositive]}:featurePositive;
+    return {ok:true,json:async()=>reply};
+  },4);
+  await client.progress(1299);await client.submissionRuns('1');
+  await client.search({run_id:'run-one',contest_id:1299,creator_ids:['11'],limit:30});
+  await client.detail('1','run-one');
+  assert.equal(calls.length,4);
+  for(const {url,options} of calls){assert.match(url,/\/oj-review-api\/v4\//);assert.equal(options.headers.Authorization,undefined);assert.equal(options.credentials,'omit');}
+});

@@ -40,10 +40,10 @@ export function createAiReviewCore() {
   }
   function featureClient(getToken,fetcher=fetch,version=3){
     async function request(path,body,signal,absent=false){
-      const token=getToken().trim();if(!token)throw new Error('请先在复核设置中填写只读令牌。');
-      const res=await fetcher((version===4?apiV4:apiV3)+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},credentials:'omit',cache:'no-store',signal,body:body?JSON.stringify(body):undefined});
+      const token=version===4?'':getToken().trim();if(version!==4&&!token)throw new Error('请先在复核设置中填写只读令牌。');
+      const res=await fetcher((version===4?apiV4:apiV3)+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},credentials:'omit',cache:'no-store',signal,body:body?JSON.stringify(body):undefined});
       if(res.status===404&&absent)return null;
-      if(!res.ok)throw new Error(`${version===4?'API Agent':'第三版'}复核读取失败（HTTP ${res.status}）。${[401,403].includes(res.status)?'请检查只读令牌。':''}`);
+      if(!res.ok)throw new Error(`${version===4?'API Agent':'第三版'}复核读取失败（HTTP ${res.status}）。${version!==4&&[401,403].includes(res.status)?'请检查只读令牌。':''}`);
       return res.json();
     }
     async function runs(path,signal,contest){const r=await request(path,null,signal);if(!Array.isArray(r.runs)||r.runs.some(x=>typeof x.run_id!=='string'||!hash(x.configuration_sha256)||(contest!==undefined&&x.contest_id!==Number(contest))))throw new Error('运行清单格式或比赛不一致');return r;}

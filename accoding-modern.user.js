@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.14.0
+// @version      1.14.1
 // @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @run-at       document-end
@@ -14,7 +14,7 @@
 
 (() => {
 'use strict';
-const ACCODING_MODERN_VERSION="1.14.0";
+const ACCODING_MODERN_VERSION="1.14.1";
 if (location.origin !== 'https://accoding.buaa.edu.cn:4000') return;
 function createContestCore() {
   const decode = value => {
@@ -1273,10 +1273,10 @@ function createAiReviewCore() {
   }
   function featureClient(getToken,fetcher=fetch,version=3){
     async function request(path,body,signal,absent=false){
-      const token=getToken().trim();if(!token)throw new Error('请先在复核设置中填写只读令牌。');
-      const res=await fetcher((version===4?apiV4:apiV3)+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},credentials:'omit',cache:'no-store',signal,body:body?JSON.stringify(body):undefined});
+      const token=version===4?'':getToken().trim();if(version!==4&&!token)throw new Error('请先在复核设置中填写只读令牌。');
+      const res=await fetcher((version===4?apiV4:apiV3)+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},credentials:'omit',cache:'no-store',signal,body:body?JSON.stringify(body):undefined});
       if(res.status===404&&absent)return null;
-      if(!res.ok)throw new Error(`${version===4?'API Agent':'第三版'}复核读取失败（HTTP ${res.status}）。${[401,403].includes(res.status)?'请检查只读令牌。':''}`);
+      if(!res.ok)throw new Error(`${version===4?'API Agent':'第三版'}复核读取失败（HTTP ${res.status}）。${version!==4&&[401,403].includes(res.status)?'请检查只读令牌。':''}`);
       return res.json();
     }
     async function runs(path,signal,contest){const r=await request(path,null,signal);if(!Array.isArray(r.runs)||r.runs.some(x=>typeof x.run_id!=='string'||!hash(x.configuration_sha256)||(contest!==undefined&&x.contest_id!==Number(contest))))throw new Error('运行清单格式或比赛不一致');return r;}
@@ -1296,10 +1296,9 @@ function createAiReviewCore() {
 }
 
 function createAiReviewPanel(container,core,getContext,_readMetadata,options={}) {
-  const configKey='accoding-modern.ai-review.v1',noteKey='accoding-modern.ai-review.notes.v1';
-  let token='';try{token=JSON.parse(localStorage.getItem(configKey)||'{}').token||'';}catch{}
+  const noteKey='accoding-modern.ai-review.notes.v1';
   let generation=0,controller=null,timer=null,rows=[],page=0,total=0,active=false,detailVersion=0,detailController=null,runs=[],runId='';
-  const apiFeatures=core.featureClient(()=>token,fetch,4),size=30;
+  const apiFeatures=core.featureClient(()=>'',fetch,4),size=30;
   const el=(tag,text)=>{const n=document.createElement(tag);if(text!=null)n.textContent=String(text);return n;};
   const button=(text,fn)=>{const b=el('button',text);b.type='button';b.onclick=fn;return b;};
   const refill=(s,values,keep=s.value)=>{s.replaceChildren();for(const [value,text] of values){const o=el('option',text);o.value=value;s.append(o);}if([...s.options].some(o=>o.value===keep))s.value=keep;};
@@ -1309,13 +1308,9 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   const selection=select('复核来源',[['all','全部复核来源'],...Object.entries(core.selections)]);
   const message=el('p','读取比赛后，打开代码复核。');message.setAttribute('role','status');
   const progress=el('p');progress.setAttribute('aria-live','polite');
-  const config=el('details');config.append(el('summary','复核设置'));
-  const password=el('input');password.type='password';password.autocomplete='off';password.value=token;password.placeholder='填写共享只读令牌';password.setAttribute('aria-label','复核只读令牌');
-  const settingStatus=el('span');
-  config.append(password,button('保存令牌',()=>{try{token=password.value.trim();localStorage.setItem(configKey,JSON.stringify({token}));settingStatus.textContent='已保存。';void reload();}catch{settingStatus.textContent='保存失败，请检查浏览器存储权限。';}}),button('清除令牌',()=>{localStorage.removeItem(configKey);token=password.value='';reset();settingStatus.textContent='已清除。';}),settingStatus);
   const list=el('div');list.className='table-wrap';const pager=el('div');pager.className='pager';const detail=el('section');detail.className='panel';detail.hidden=true;
   const controls=el('div');controls.className='row';controls.append(problem,feature,selection,button('刷新结果',()=>void reload()),button('导出当前结果',()=>void exportRows()));
-  container.append(el('h2','代码复核'),config,controls,message,progress,list,pager,detail);
+  container.append(el('h2','代码复核'),controls,message,progress,list,pager,detail);
   if(options.submissionId){message.hidden=problem.hidden=feature.hidden=selection.hidden=list.hidden=pager.hidden=true;controls.lastChild.hidden=true;}
   function client(){return apiFeatures;}
   function contextKey(){const c=getContext();return `${c.classId||''}:${c.contest?.id||''}:${c.generation}`;}
