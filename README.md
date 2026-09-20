@@ -1,5 +1,9 @@
 # Accoding Modern
 
+> 1.14.0 新增页面更新提示与手动检查，版本信息统一生成。
+
+> 1.13.0 接入 API Agent v4：远端模型与思考等级、自动读取最新运行、if 输入防护口径；页面仅展示 API Agent。详见[使用说明](docs/ai-review.md)。
+
 > 1.11.1 新增按题筛选本班通过提交和每人最新 AC；[使用说明](docs/class-preview.md#按题查看通过提交1111)。
 
 > 1.8.0 新增班级与提交页内代码复核；[使用说明](docs/ai-review.md)。
@@ -18,6 +22,14 @@
 4. 打开或刷新 <https://accoding.buaa.edu.cn:4000/>。
 
 目前仅匹配上述 HTTPS 管理站的 4000 端口。界面美化与班级统计无需独立服务器；可选的代码复核功能连接已部署的独立数据 API。
+
+## 更新提示（1.14.0）
+
+打开 OJ 时最多每 6 小时读取一次本仓库的小型版本文件，发现新版会显示“立即更新 / 更新说明 / 稍后”。“稍后”对同一新版隐藏 24 小时；更新检查失败会稍后重试，不影响 OJ 使用。班级页版本号旁的“检查更新”可立即检查。
+
+点击“立即更新”会打开篡改猴安装页，确认后刷新 OJ。篡改猴自身也可依据 `@updateURL` 和 `@downloadURL` 定期检查更新，是否自动安装及频率取决于扩展设置。旧于 1.14.0 的脚本没有页面提示，需要先通过上面的安装链接或篡改猴检查更新升级一次。
+
+检查更新只请求公开版本文件，不携带 OJ Cookie、只读令牌或页面数据。
 
 ## 班级（1.6.0）
 
@@ -121,7 +133,7 @@ npm run check
 
 批量上传逻辑位于 `src/batch-core.mjs` 与 `src/batch-upload.js`，返回按钮位于 `src/back-navigation.js`。
 
-修改 `src/theme.js`（管理页）、`src/contest-theme.js`（赛时页）、`src/contest-core.mjs` 、`src/contest-board.js`、`src/markdown-core.mjs` 或 `src/markdown-editor.js`，再执行 `npm run build` 生成根目录的 `accoding-modern.user.js`。不要直接修改构建产物。版本及安装地址位于 `scripts/build.mjs`。
+修改 `src/theme.js`（管理页）、`src/contest-theme.js`（赛时页）、`src/contest-core.mjs` 、`src/contest-board.js`、`src/markdown-core.mjs` 或 `src/markdown-editor.js`，再执行 `npm run build` 生成根目录的 `accoding-modern.user.js`。不要直接修改构建产物。版本号统一位于 `package.json`，构建同时生成脚本元数据、页面版本、`accoding-modern.meta.js` 与 `version.json`；安装地址位于 `scripts/build.mjs`。
 
 如需通过本机临时服务安装：在仓库目录运行 `python3 -m http.server 18764 --bind 127.0.0.1`，用浏览器打开 `http://127.0.0.1:18764/accoding-modern.user.js` 并确认安装，随后关闭服务即可。安装副本与磁盘源码独立，改源码后需要重新构建、更新已安装脚本并刷新网站。
 
@@ -139,10 +151,10 @@ npm run check
 
 MIT
 
-## 代码复核（1.10.0）
+## 代码复核（API Agent）
 
-班级页直接从 server3 分页读取模型明确标记“有 AI 生成嫌疑”的结果。普通结果不进入网站源码库；页面不会为代码复核下载全场提交列表。按题目、特征、复核来源筛选，支持当前筛选结果完整导出。
+班级页直接从 server3 分页读取模型检出约定代码特征的结果。普通结果不进入网站源码库；页面不会为代码复核下载全场提交列表。按题目、特征、复核来源筛选，支持当前筛选结果完整导出。
 
-详情显示疑似源码、原文证据和前一次提交链接。完整历史源码、批次队列与普通判断只保存在 Mac / ROG E 盘。只读令牌沿用已有设置，不包含启动任务权限。批次暂停和第二版尚未运行会单独显示。
+详情显示疑似源码、原文证据和前一次提交链接。完整历史源码、批次队列与普通判断只保存在 Mac / ROG E 盘。只读令牌沿用已有设置，不包含启动任务权限。页面自动读取最新 API Agent 运行，不再展示第二版、第三版和运行选择框。
 
 操作与存储说明见 [代码复核](docs/ai-review.md)。

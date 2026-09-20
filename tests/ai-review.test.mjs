@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createAiReviewCore} from '../src/ai-review-core.mjs';
+import {webcrypto,createHash} from 'node:crypto';
+if(!globalThis.crypto)globalThis.crypto=webcrypto;
 const core=createAiReviewCore();
 const positive={submission_id:'1',contest_id:1299,creator_id:'11',ai_suspected:true,score:.9,threshold:.8,model_digest:'a'.repeat(64)};
 test('visibility requires an explicit positive model decision, not old priorities',()=>{
@@ -25,4 +27,34 @@ test('wrong-class and nonpositive responses are errors, not silent empty results
 test('a removed or absent detail is represented as absent, while auth errors remain errors',async()=>{
   const c=core.client(()=>'token',async()=>({ok:false,status:404}));assert.equal(await c.detail('1'),null);
   const denied=core.client(()=>'token',async()=>({ok:false,status:403}));await assert.rejects(()=>denied.detail('1'),/只读令牌/);
+});
+const code='int main(){return 0;}';
+const featurePositive={submission_id:'1',contest_id:1299,creator_id:'11',run_id:'run-one',decision_kind:'llm_feature_presence',configuration_sha256:'b'.repeat(64),model_digest:'a'.repeat(64),code_hash:createHash('sha256').update(code).digest('hex'),code,result:{ai_suspected:true,label:['讲解性注释'],reason:'current:1 讲解性注释。'}};
+test('feature results require exact three fields and known unique labels without a score',()=>{
+  assert.equal(core.hasFeatureReview(featurePositive),true);
+  for(const change of [{ai_suspected:false},{ai_suspected:'true'},{label:[]},{label:['旧标签']},{label:['讲解性注释','讲解性注释']},{reason:''},{confidence:.9}])assert.equal(core.hasFeatureReview({...featurePositive,result:{...featurePositive.result,...change}}),false);
+  assert.equal(core.hasFeatureReview(positive),false);
+});
+test('feature queries bind every returned item to the selected run and class',async()=>{
+  const q={run_id:'run-one',contest_id:1299,creator_ids:['11'],limit:30};
+  const request=reply=>core.featureClient(()=>'token',async(url,options)=>({ok:true,json:async()=>reply}));
+  assert.equal((await request({run_id:q.run_id,total:1,reviews:[featurePositive]}).search(q)).total,1);
+  for(const change of [{run_id:'run-two'},{contest_id:1304},{creator_id:'22'}])await assert.rejects(()=>request({run_id:q.run_id,total:1,reviews:[{...featurePositive,...change}]}).search(q),/当前运行或班级/);
+  await assert.rejects(()=>request({run_id:'run-two',total:0,reviews:[]}).search(q),/运行无效/);
+  await assert.rejects(()=>request({}).search({...q,run_id:undefined}),/选择核查运行/);
+});
+test('details and on-demand context require matching exact source hashes',async()=>{
+  assert.equal(await core.verifySource(code,featurePositive.code_hash),code);
+  await assert.rejects(()=>core.verifySource(code+'\n',featurePositive.code_hash),/哈希/);
+  const request=value=>core.featureClient(()=>'token',async()=>({ok:true,json:async()=>value}));
+  assert.deepEqual(await request(featurePositive).detail('1','run-one'),featurePositive);
+  await assert.rejects(()=>request({...featurePositive,code:'changed'}).detail('1','run-one'),/哈希/);
+  await assert.rejects(()=>request(featurePositive).detail('2','run-one'),/提交不一致/);
+  await assert.rejects(()=>request(featurePositive).detail('1','run-two'),/运行或提交不一致/);
+});
+test('OJ metadata wrapper is removed only for the matching submission and frozen source hash',async()=>{
+  const header='/* \n Author: fixture\n Result: AC Submission_id: 99\n Created at: fixture\n*/\n\n';
+  assert.equal(await core.sourceFromOj(header+code,'99',featurePositive.code_hash),code);
+  await assert.rejects(()=>core.sourceFromOj(header+code,'100',featurePositive.code_hash),/提交编号/);
+  await assert.rejects(()=>core.sourceFromOj(header+code+'changed','99',featurePositive.code_hash),/哈希/);
 });
