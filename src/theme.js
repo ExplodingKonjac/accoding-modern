@@ -145,7 +145,7 @@ html.am body {background:var(--am-bg)!important;color:var(--am-ink);font-family:
   topbar.append(breadcrumb, actions);
   page.before(topbar);
 
-  // Enhance list pages only; never replace rows, IDs, controls, forms, or handlers.
+  // Enhance list pages while retaining the native current-page rows and controls.
   const isList = /^\/(problem|contest|group|submission)\/index\/?$/.test(location.pathname);
   if (isList) for (const table of page.querySelectorAll('table.table')) {
     if (table.closest('.modal')) continue;
@@ -163,8 +163,6 @@ html.am body {background:var(--am-bg)!important;color:var(--am-ink);font-family:
     label.append(el('span', '', '⌕'));
     const input = el('input', '');
     input.type = 'search';
-    input.placeholder = '筛选当前页：名称、ID、作者…';
-    input.setAttribute('aria-label', '筛选当前页记录');
     label.append(input);
     const info = el('span', 'am-count');
     info.setAttribute('aria-live', 'polite');
@@ -176,26 +174,10 @@ html.am body {background:var(--am-bg)!important;color:var(--am-ink);font-family:
     compact.setAttribute('aria-pressed', 'false');
     toolbar.append(label, info, compact);
     wrap.before(toolbar);
-    const empty = el('div', 'am-empty', '当前页没有匹配的记录，请调整关键词或切换原站分页。');
+    const empty = el('div', 'am-empty');
     empty.hidden = true;
     wrap.append(empty);
-    const filter = () => {
-      const query = input.value.trim().toLocaleLowerCase();
-      let count = 0;
-      for (const row of dataRows) {
-        const matches = [...row.cells].map(cell => cell.textContent).join(' ').toLocaleLowerCase().includes(query);
-        row.classList.toggle('am-filtered', !matches);
-        if (matches) count++;
-      }
-      info.textContent = query ? `当前页 ${count} / ${dataRows.length} 条` : `当前页 ${dataRows.length} 条 · 可用下方分页查看更多`;
-      empty.hidden = count !== 0;
-    };
-    input.addEventListener('input', filter);
-    // Some original list tables sit inside a POST form. Local search must not submit it.
-    input.addEventListener('keydown', event => {
-      if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); }
-    });
-    filter();
+    mountListFilter({page, table, wrap, toolbar, input, info, empty, dataRows});
   }
 
   const directColumns = [...page.children].filter(n => n.tagName === 'DIV');

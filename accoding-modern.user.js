@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.15.2
+// @version      1.16.0
 // @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @run-at       document-end
@@ -14,7 +14,7 @@
 
 (() => {
 'use strict';
-const ACCODING_MODERN_VERSION="1.15.2";
+const ACCODING_MODERN_VERSION="1.16.0";
 if (location.origin !== 'https://accoding.buaa.edu.cn:4000') return;
 function createContestCore() {
   const decode = value => {
@@ -507,6 +507,198 @@ html.am-ng{--ng-bg:#f5f7fb;--ng-card:#fff;--ng-line:#e3e9f2;--ng-ink:#202b40;--n
   observer.observe(document.body,{childList:true,subtree:true});enhance();
 })();
 
+// Canonicalize only pagination URLs for this exact list and preserve its native filters.
+function listPageUrl(href, baseUrl) {
+  try {
+    if (!href || href.trim().startsWith('#')) return null;
+    const base = new URL(baseUrl), url = new URL(href, base);
+    if (url.origin !== base.origin || url.pathname !== base.pathname) return null;
+    const key = url.searchParams.has('offset') ? 'offset' : 'page';
+    const value = url.searchParams.get(key);
+    if (value === null || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) return null;
+    if (key === 'page' && Number(value) < 1) return null;
+    for (const [name, val] of base.searchParams) {
+      if (name !== 'page' && name !== 'offset' && !url.searchParams.has(name)) url.searchParams.append(name, val);
+    }
+    url.hash = '';
+    url.searchParams.set(key, String(Number(value)));
+    url.searchParams.sort();
+    return url.href;
+  } catch (_) { return null; }
+}
+
+// Failed/aborted pages stay queued. A batch cap bounds large submission histories.
+function createListPageLoader({initialUrl, urls, readPage, onPage, onProgress = () => {}, batchSize = 50}) {
+  const visited = new Set([initialUrl]), pending = new Set(urls.filter(url => url !== initialUrl));
+  let controller = null;
+  const state = {pages: 1, loading: false, complete: pending.size === 0, error: ''};
+  async function run() {
+    if (state.loading || state.complete) return;
+    controller = new AbortController();
+    state.loading = true;
+    state.error = '';
+    try {
+      for (let count = 0; pending.size && count < batchSize; count++) {
+        const url = pending.values().next().value;
+        const result = await readPage(url, controller.signal);
+        controller.signal.throwIfAborted();
+        onPage(result, url);
+        pending.delete(url);
+        visited.add(url);
+        for (const next of result.urls) if (!visited.has(next)) pending.add(next);
+        state.pages++;
+        onProgress();
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) state.error = error.message || '读取失败';
+    } finally {
+      state.loading = false;
+      state.complete = pending.size === 0;
+      controller = null;
+    }
+  }
+  return {state, run, pause() {controller?.abort();}};
+}
+
+function mountListFilter({page, table, wrap, toolbar, input, info, empty, dataRows}) {
+  const baseUrl = location.href;
+  const kind = location.pathname.split('/')[1];
+  const form = table.closest('form');
+  // The native submission search uses a read-only POST with these four fields.
+  const body = kind === 'submission' && form ? new URLSearchParams(new FormData(form)) : null;
+  const tableIndex = [...page.querySelectorAll('table.table')].filter(t => !t.closest('.modal')).indexOf(table);
+  const header = [...table.rows].find(row => row.cells.length);
+  const signature = row => [...row.cells].map(cell => cell.textContent.replace(/\s+/g, ' ').trim()).join('|');
+  const headerSignature = signature(header);
+  const keyOf = row => {
+    if (kind === 'submission') return row.cells[0]?.textContent.trim();
+    const link = [...row.querySelectorAll('a[href]')].find(a => {
+      const url = new URL(a.getAttribute('href'), baseUrl);
+      return url.pathname.startsWith('/' + kind + '/') || kind === 'contest' && url.pathname.startsWith('/contest-ng/');
+    });
+    return link ? new URL(link.getAttribute('href'), baseUrl).href : signature(row);
+  };
+  const seen = new Set(dataRows.map(keyOf));
+  const entries = dataRows.map(row => ({row, local: true}));
+  const pageUrls = (root, url) => [...root.querySelectorAll('a[href], [onclick]')]
+    .filter(node => !node.closest('table,.modal') && !node.hasAttribute('disabled') && node.getAttribute('aria-disabled') !== 'true' && !node.closest('.disabled'))
+    .map(node => node.getAttribute('href') || node.getAttribute('onclick')?.match(/^\s*change_page\(\s*["']([^"']+)["']\s*\)\s*;?\s*$/)?.[1])
+    .map(href => href && listPageUrl(href, url)).filter(Boolean);
+  const pageParam = kind === 'submission' ? 'offset' : 'page';
+  const initial = new URL(baseUrl);
+  if (!initial.searchParams.has(pageParam)) initial.searchParams.set(pageParam, pageParam === 'page' ? '1' : '0');
+  const initialUrl = listPageUrl(initial.href, baseUrl);
+  const urls = pageUrls(page, baseUrl);
+  // Starting on a later page must also search the pages before it.
+  if (urls.length) {
+    const first = new URL(initialUrl);
+    first.searchParams.set(pageParam, pageParam === 'page' ? '1' : '0');
+    urls.unshift(first.href);
+  }
+  const control = document.createElement('button');
+  control.type = 'button';
+  control.className = 'am-button';
+  control.hidden = true;
+  toolbar.insertBefore(control, toolbar.lastChild);
+  let timer;
+  const loader = createListPageLoader({initialUrl, urls,
+    async readPage(url, signal) {
+      const request = new AbortController();
+      const abort = () => request.abort();
+      signal.addEventListener('abort', abort, {once: true});
+      const timeout = setTimeout(abort, 20000);
+      try {
+        const response = await fetch(url, {credentials: 'same-origin', signal: request.signal,
+          ...(body ? {method: 'POST', body} : {})});
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (new URL(response.url).pathname !== new URL(url).pathname) throw new Error('登录状态已失效或无权读取，请刷新页面');
+        const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+        const remote = [...doc.querySelectorAll('#page table.table')].filter(t => !t.closest('.modal'))[tableIndex];
+        const rows = remote && [...remote.rows].filter(row => row.cells.length);
+        if (!rows?.length || signature(rows[0]) !== headerSignature) throw new Error('返回的列表不完整，请刷新后重试');
+        const records = rows.slice(1);
+        return {rows: records, urls: records.length ? pageUrls(doc.querySelector('#page'), url) : []};
+      } catch (error) {
+        if (request.signal.aborted && !signal.aborted) throw new Error('请求超时，请重试');
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+        signal.removeEventListener('abort', abort);
+      }
+    },
+    onPage(result, url) {
+      for (const source of result.rows) {
+        const key = keyOf(source);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const row = document.importNode(source, true);
+        // Never replay the remote page's scripts, row IDs, or inline event handlers.
+        row.querySelectorAll('script,style,iframe,object,embed,form').forEach(node => node.remove());
+        for (const node of [row, ...row.querySelectorAll('*')]) {
+          for (const attr of [...node.attributes]) if (/^on/i.test(attr.name) || attr.name === 'id') node.removeAttribute(attr.name);
+        }
+        for (const link of row.querySelectorAll('a[href]')) {
+          const target = new URL(link.getAttribute('href'), url);
+          if (target.origin === location.origin && /^https?:$/.test(target.protocol)) link.href = target.href;
+          else link.removeAttribute('href');
+        }
+        row.querySelectorAll('input,button,select,textarea').forEach(node => {node.disabled = true; node.removeAttribute('name');});
+        // Imported submission rows are snapshots; keep their absolute submission time visible.
+        row.querySelectorAll('.standard-format').forEach(node => {node.style.display = 'block';});
+        row.querySelectorAll('.time-difference').forEach(node => {node.style.display = 'none';});
+        const detail = row.querySelector('[data-content]');
+        if (detail) detail.title = detail.getAttribute('data-content');
+        row.classList.add('am-remote-row');
+        entries.push({row, local: false});
+        (table.tBodies[0] || table).append(row);
+      }
+    },
+    onProgress: draw
+  });
+  function draw() {
+    const query = input.value.trim().toLocaleLowerCase();
+    let count = 0;
+    for (const {row, local} of entries) {
+      // Read cells only: original inline scripts must not become searchable text.
+      const text = [...row.cells].map(cell => cell.textContent).join(' ').toLocaleLowerCase();
+      const matches = (!query ? local : text.includes(query));
+      row.classList.toggle('am-filtered', !matches);
+      if (matches) count++;
+    }
+    const {loading, complete, pages, error} = loader.state;
+    const progress = loading ? '正在跨页加载…' : error ? `加载失败：${error} · 结果不完整` : complete ? '全部加载完成' : '尚未加载全部页面';
+    info.textContent = query ? `${count} 条匹配 / 已加载 ${entries.length} 条 · ${pages} 页 · ${progress}` : `当前页 ${dataRows.length} 条 · 输入关键词可跨页筛选`;
+    empty.textContent = query && !complete ? '已加载页面暂无匹配，继续加载后可能找到更多记录。' : '没有匹配的记录，请调整关键词。';
+    empty.hidden = count !== 0;
+    control.hidden = !query || complete;
+    control.textContent = loading ? '暂停加载' : error ? '重试加载' : '继续跨页加载';
+    wrap.setAttribute('aria-busy', String(loading));
+  }
+  async function load() {
+    const pending = loader.run();
+    draw();
+    await pending;
+    draw();
+  }
+  input.placeholder = '跨页筛选：名称、ID、作者…';
+  input.setAttribute('aria-label', '跨页筛选记录');
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    if (!input.value.trim()) loader.pause();
+    else if (!loader.state.loading && !loader.state.error) timer = setTimeout(load, 350);
+    draw();
+  });
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {event.preventDefault(); event.stopPropagation();}
+  });
+  control.addEventListener('click', () => {
+    clearTimeout(timer);
+    if (loader.state.loading) loader.pause(); else load();
+  });
+  window.addEventListener('pagehide', () => {clearTimeout(timer); loader.pause();});
+  draw();
+}
+
 (() => {
   'use strict';
   if (location.origin !== 'https://accoding.buaa.edu.cn:4000' || document.getElementById('am-style')) return;
@@ -644,7 +836,7 @@ html.am body {background:var(--am-bg)!important;color:var(--am-ink);font-family:
   topbar.append(breadcrumb, actions);
   page.before(topbar);
 
-  // Enhance list pages only; never replace rows, IDs, controls, forms, or handlers.
+  // Enhance list pages while retaining the native current-page rows and controls.
   const isList = /^\/(problem|contest|group|submission)\/index\/?$/.test(location.pathname);
   if (isList) for (const table of page.querySelectorAll('table.table')) {
     if (table.closest('.modal')) continue;
@@ -662,8 +854,6 @@ html.am body {background:var(--am-bg)!important;color:var(--am-ink);font-family:
     label.append(el('span', '', '⌕'));
     const input = el('input', '');
     input.type = 'search';
-    input.placeholder = '筛选当前页：名称、ID、作者…';
-    input.setAttribute('aria-label', '筛选当前页记录');
     label.append(input);
     const info = el('span', 'am-count');
     info.setAttribute('aria-live', 'polite');
@@ -675,26 +865,10 @@ html.am body {background:var(--am-bg)!important;color:var(--am-ink);font-family:
     compact.setAttribute('aria-pressed', 'false');
     toolbar.append(label, info, compact);
     wrap.before(toolbar);
-    const empty = el('div', 'am-empty', '当前页没有匹配的记录，请调整关键词或切换原站分页。');
+    const empty = el('div', 'am-empty');
     empty.hidden = true;
     wrap.append(empty);
-    const filter = () => {
-      const query = input.value.trim().toLocaleLowerCase();
-      let count = 0;
-      for (const row of dataRows) {
-        const matches = [...row.cells].map(cell => cell.textContent).join(' ').toLocaleLowerCase().includes(query);
-        row.classList.toggle('am-filtered', !matches);
-        if (matches) count++;
-      }
-      info.textContent = query ? `当前页 ${count} / ${dataRows.length} 条` : `当前页 ${dataRows.length} 条 · 可用下方分页查看更多`;
-      empty.hidden = count !== 0;
-    };
-    input.addEventListener('input', filter);
-    // Some original list tables sit inside a POST form. Local search must not submit it.
-    input.addEventListener('keydown', event => {
-      if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); }
-    });
-    filter();
+    mountListFilter({page, table, wrap, toolbar, input, info, empty, dataRows});
   }
 
   const directColumns = [...page.children].filter(n => n.tagName === 'DIV');
