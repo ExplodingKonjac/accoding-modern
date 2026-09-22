@@ -2,7 +2,7 @@ export function createAiReviewCore() {
   const api='https://muzermat.online:8443/oj-review-api/v2';
   const apiV4='https://muzermat.online:8443/oj-review-api/v4';
   const apiV3='https://muzermat.online:8443/oj-review-api/v3';
-  const featureLabels=['输入失败防护','讲解性注释','编号步骤','对答式注释','模板化说明','注释密集','生成回答残留','短时间大幅改写','短时间码风突变','注释表达特征','模型来源注释','代码结构大幅变化','跨题码风变化','罕见共同代码片段','罕见高级用法','长变量命名'];
+  const featureLabels=['输入失败防护','讲解性注释','编号步骤','对答式注释','模板化说明','注释密集','生成回答残留','短时间大幅改写','短时间码风突变','注释表达特征','模型来源注释','代码结构大幅变化','跨题码风变化','罕见共同代码片段','罕见高级用法','长变量命名','函数与变量命名'];
   const selections={candidate:'候选复核',sample:'连续提交抽样',manual:'单独复核'};
   const states={paused:'已暂停',running:'正在复核',completed:'复核完成',completed_with_errors:'已结束，部分失败',failed:'运行失败'};
   const hash=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
