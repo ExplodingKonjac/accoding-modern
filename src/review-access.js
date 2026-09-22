@@ -11,7 +11,7 @@ async function ensureReviewAccess(contestId,core){
     const api='https://muzermat.online:8443/oj-review-api/v4';
     const post=async(path,body)=>{const r=await fetch(api+path,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'omit',cache:'no-store',body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});const value=await r.json();if(!r.ok)throw new Error(value.detail||'OJ 权限验证失败，请刷新重试。');return value;};
     const hash=async value=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(v=>v.toString(16).padStart(2,'0')).join('');
-    const challenge=await post('/access/challenge',{contest_id:cid,user_id:userId,display_name:link.textContent.trim()||'OJ 助教'});
+    const challenge=await post('/access/challenge',{contest_id:cid,user_id:userId,display_name:([...document.querySelectorAll('a[href]')].find(a=>a.getAttribute('href')===link.getAttribute('href')&&/^欢迎/.test(a.textContent.trim()))?.textContent.trim().replace(/^欢迎[，,：:\s]*/,'')||'OJ 用户 '+userId)});
     if(!Array.isArray(challenge.submission_ids)||challenge.submission_ids.length!==3||challenge.submission_ids.some(s=>!/^\d+$/.test(s)))throw new Error('权限验证数据无效。');
     const answers=await Promise.all(challenge.submission_ids.map(async sid=>{
       const r=await fetch('/submission/'+sid,{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)});
