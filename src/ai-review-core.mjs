@@ -6,7 +6,7 @@ export function createAiReviewCore() {
   const selections={candidate:'候选复核',sample:'连续提交抽样',manual:'单独复核'};
   const states={paused:'已暂停',running:'正在复核',completed:'复核完成',completed_with_errors:'已结束，部分失败',failed:'运行失败'};
   const hash=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
-  function hasFeatureReview(r){const d=r?.result;return ((r?.decision_kind==='rule_feature_candidate'&&typeof r.rule_version==='string'&&!!r.rule_version&&r.call_id===null)||(r?.decision_kind==='llm_feature_presence'&&(hash(r.model_digest)||(r.backend_kind==='remote_api'&&r.model_digest===null&&hash(r.execution_config_sha256)&&typeof r.requested_model==='string'))))&&hash(r.configuration_sha256)&&hash(r.code_hash)&&typeof r.run_id==='string'&&!!r.run_id&&d?.ai_suspected===true&&Object.keys(d).sort().join(',')==='ai_suspected,label,reason'&&typeof d.reason==='string'&&!!d.reason.trim()&&Array.isArray(d.label)&&d.label.length>0&&new Set(d.label).size===d.label.length&&d.label.every(x=>featureLabels.includes(x));}
+  function hasFeatureReview(r){const d=r?.result;if(r?.decision_kind==='human_review')return hash(r.configuration_sha256)&&hash(r.code_hash)&&typeof r.run_id==='string'&&!!r.run_id&&typeof d?.ai_suspected==='boolean'&&typeof d.reason==='string'&&Array.isArray(d.label)&&d.label.length===0&&Number.isInteger(r.annotation?.id);return ((r?.decision_kind==='rule_feature_candidate'&&typeof r.rule_version==='string'&&!!r.rule_version&&r.call_id===null)||(r?.decision_kind==='llm_feature_presence'&&(hash(r.model_digest)||(r.backend_kind==='remote_api'&&r.model_digest===null&&hash(r.execution_config_sha256)&&typeof r.requested_model==='string'))))&&hash(r.configuration_sha256)&&hash(r.code_hash)&&typeof r.run_id==='string'&&!!r.run_id&&d?.ai_suspected===true&&Object.keys(d).sort().join(',')==='ai_suspected,label,reason'&&typeof d.reason==='string'&&!!d.reason.trim()&&Array.isArray(d.label)&&d.label.length>0&&new Set(d.label).size===d.label.length&&d.label.every(x=>featureLabels.includes(x));}
   async function verifySource(code,expected){if(typeof code!=='string'||!hash(expected))throw new Error('源码或校验摘要缺失');const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(code));const actual=[...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,'0')).join('');if(actual!==expected)throw new Error('源码哈希与核查时不一致，请打开 OJ 原提交人工核验。');return code;}
   async function sourceFromOj(text,id,expected){
     const header=text.match(/^\/\*[\s\S]*?\*\//),candidates=[text];
@@ -40,14 +40,19 @@ export function createAiReviewCore() {
   }
   function featureClient(getToken,fetcher=fetch,version=3){
     async function request(path,body,signal,absent=false){
-      const token=version===4?'':getToken().trim();if(version!==4&&!token)throw new Error('请先在复核设置中填写只读令牌。');
+      const token=getToken().trim();if(version!==4&&!token)throw new Error('请先在复核设置中填写只读令牌。');
       const res=await fetcher((version===4?apiV4:apiV3)+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},credentials:'omit',cache:'no-store',signal,body:body?JSON.stringify(body):undefined});
       if(res.status===404&&absent)return null;
-      if(!res.ok)throw new Error(`${version===4?'API Agent':'第三版'}复核读取失败（HTTP ${res.status}）。${version!==4&&[401,403].includes(res.status)?'请检查只读令牌。':''}`);
+      if(!res.ok){let body={};try{body=await res.json();}catch{}throw new Error(body.detail||`复核请求失败（HTTP ${res.status}）`);}
       return res.json();
     }
     async function runs(path,signal,contest){const r=await request(path,null,signal);if(!Array.isArray(r.runs)||r.runs.some(x=>typeof x.run_id!=='string'||!hash(x.configuration_sha256)||(contest!==undefined&&x.contest_id!==Number(contest))))throw new Error('运行清单格式或比赛不一致');return r;}
     return {
+      session:signal=>request('/feedback/session',null,signal),
+      source:(id,runId,signal)=>request(`/runs/${encodeURIComponent(runId)}/sources/${encodeURIComponent(id)}`,null,signal),
+      feedback:(id,codeHash,runId,signal)=>request(`/feedback/${encodeURIComponent(id)}?code_hash=${encodeURIComponent(codeHash)}&run_id=${encodeURIComponent(runId)}`,null,signal),
+      saveFeedback:(body,signal)=>request('/feedback',body,signal),
+      exportFeedback:(contest,after=0,signal)=>request(`/contests/${encodeURIComponent(contest)}/feedback/export?after=${after}`,null,signal),
       progress:(contest,signal)=>runs(`/contests/${encodeURIComponent(contest)}/progress`,signal,contest),
       submissionRuns:(id,signal)=>runs(`/submissions/${encodeURIComponent(id)}/runs${version===4?'?include_candidates=true':''}`,signal),
       async detail(id,runId,signal){if(!runId)throw new Error('请先选择核查运行');const r=await request(`/runs/${encodeURIComponent(runId)}/submissions/${encodeURIComponent(id)}${version===4?'?include_candidates=true':''}`,null,signal,true);if(r&&(!hasFeatureReview(r)||r.run_id!==runId||String(r.submission_id)!==String(id)))throw new Error('复核详情与所选运行或提交不一致');if(r)await verifySource(r.code,r.code_hash);return r;},
@@ -59,5 +64,22 @@ export function createAiReviewCore() {
       }
     };
   }
-  return {api,apiV3,apiV4,selections,states,featureLabels,members,hasFlaggedReview,hasFeatureReview,verifySource,sourceFromOj,client,featureClient};
+  function lineDiff(before,after){
+    const a=before.replace(/\r\n/g,'\n').split('\n'),b=after.replace(/\r\n/g,'\n').split('\n');
+    const output=[];
+    function row(x,y){let p=new Uint32Array(y.length+1);for(const v of x){const q=new Uint32Array(y.length+1);for(let j=0;j<y.length;j++)q[j+1]=v===y[j]?p[j]+1:Math.max(p[j+1],q[j]);p=q;}return p;}
+    function solve(x,y,oldStart,newStart){
+      let front=0;while(front<x.length&&front<y.length&&x[front]===y[front]){output.push({kind:'equal',text:x[front],oldLine:oldStart+front,newLine:newStart+front});front++;}
+      x=x.slice(front);y=y.slice(front);oldStart+=front;newStart+=front;
+      let tail=0;while(tail<x.length&&tail<y.length&&x[x.length-1-tail]===y[y.length-1-tail])tail++;
+      const xx=tail?x.slice(0,-tail):x,yy=tail?y.slice(0,-tail):y;
+      if(!xx.length)yy.forEach((text,i)=>output.push({kind:'add',text,oldLine:null,newLine:newStart+i}));
+      else if(!yy.length)xx.forEach((text,i)=>output.push({kind:'remove',text,oldLine:oldStart+i,newLine:null}));
+      else if(xx.length===1){const at=yy.indexOf(xx[0]);if(at<0){output.push({kind:'remove',text:xx[0],oldLine:oldStart,newLine:null});yy.forEach((text,i)=>output.push({kind:'add',text,oldLine:null,newLine:newStart+i}));}else{solve([],yy.slice(0,at),oldStart,newStart);output.push({kind:'equal',text:xx[0],oldLine:oldStart,newLine:newStart+at});solve([],yy.slice(at+1),oldStart+1,newStart+at+1);}}
+      else{const mid=Math.floor(xx.length/2),left=row(xx.slice(0,mid),yy),right=row(xx.slice(mid).reverse(),[...yy].reverse());let split=0;for(let j=1;j<=yy.length;j++)if(left[j]+right[yy.length-j]>left[split]+right[yy.length-split])split=j;solve(xx.slice(0,mid),yy.slice(0,split),oldStart,newStart);solve(xx.slice(mid),yy.slice(split),oldStart+mid,newStart+split);}
+      for(let i=0;i<tail;i++)output.push({kind:'equal',text:x[xx.length+i],oldLine:oldStart+xx.length+i,newLine:newStart+yy.length+i});
+    }
+    solve(a,b,1,1);return output;
+  }
+  return {lineDiff,api,apiV3,apiV4,selections,states,featureLabels,members,hasFlaggedReview,hasFeatureReview,verifySource,sourceFromOj,client,featureClient};
 }

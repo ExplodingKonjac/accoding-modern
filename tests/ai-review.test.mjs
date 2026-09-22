@@ -59,9 +59,9 @@ test('OJ metadata wrapper is removed only for the matching submission and frozen
   await assert.rejects(()=>core.sourceFromOj(header+code+'changed','99',featurePositive.code_hash),/哈希/);
 });
 
-test('v4 progress, search and details work without reading or sending a saved token',async()=>{
+test('v4 public reads work without a reviewer token',async()=>{
   const calls=[];
-  const client=core.featureClient(()=>{throw new Error('Must not read credentials');},async(url,options)=>{
+  const client=core.featureClient(()=>'',async(url,options)=>{
     calls.push({url,options});
     const reply=new URL(url).pathname.endsWith('/progress')||new URL(url).pathname.endsWith('/runs')?{runs:[{run_id:'run-one',contest_id:1299,configuration_sha256:'b'.repeat(64)}]}:
       url.endsWith('/search')?{run_id:'run-one',total:1,reviews:[featurePositive]}:featurePositive;
@@ -82,4 +82,26 @@ test('rule suspects share the review list without fabricated model receipts',()=
   assert.equal(core.hasFeatureReview({...suspect,call_id:'fake-model'}),false);
   assert.equal(core.hasFeatureReview({...suspect,rule_version:''}),false);
   assert.equal(core.hasFeatureReview({...suspect,result:{...suspect.result,ai_suspected:false}}),false);
+});
+
+test('git-style line diff preserves both files and identifies unchanged lines',()=>{
+  const before='int main() {\n  int a=1;\n  printf("%d",a);\n}',after='int main() {\n  int value=2;\n  printf("%d",value);\n}';
+  const diff=core.lineDiff(before,after);
+  assert.equal(diff.filter(r=>r.kind!=='add').map(r=>r.text).join('\n'),before);
+  assert.equal(diff.filter(r=>r.kind!=='remove').map(r=>r.text).join('\n'),after);
+  assert.deepEqual(diff.filter(r=>r.kind==='equal').map(r=>r.text),['int main() {','}']);
+  assert.ok(diff.some(r=>r.kind==='remove')&&diff.some(r=>r.kind==='add'));
+  for(const [a,b] of [['','x'],['a\na','a'],['x\ny','z\nx\ny\nz'],['a\nb\nc','a\nc\nb']]){
+    const rows=core.lineDiff(a,b);
+    assert.equal(rows.filter(r=>r.kind!=='add').map(r=>r.text).join('\n'),a);
+    assert.equal(rows.filter(r=>r.kind!=='remove').map(r=>r.text).join('\n'),b);
+  }
+});
+
+test('TA credentials authenticate feedback without changing the original rule schema',async()=>{
+  const calls=[],client=core.featureClient(()=> 'ta-secret',async(url,opts)=>{calls.push({url,opts});return {ok:true,json:async()=>({saved:true})};},4);
+  await client.saveFeedback({submission_id:'1',status:'ordinary',reason:'已核对'});
+  assert.equal(calls[0].opts.headers.Authorization,'Bearer ta-secret');
+  assert.equal(JSON.parse(calls[0].opts.body).reason,'已核对');
+  assert.ok(calls[0].url.endsWith('/feedback'));
 });

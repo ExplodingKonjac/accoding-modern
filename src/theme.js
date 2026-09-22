@@ -141,7 +141,7 @@ html.am body {background:var(--am-bg)!important;color:var(--am-ink);font-family:
   const selected = navbar.querySelector('.nav-change');
   breadcrumb.append(el('strong', '', selected?.textContent.trim() || '概览'));
   const actions = el('div', 'am-top-actions');
-  actions.append(el('span', 'am-tag', '本地外观 · 原站服务'), button('恢复原版', () => setDisabled(true)));
+  actions.append(button('恢复原版', () => setDisabled(true)));
   topbar.append(breadcrumb, actions);
   page.before(topbar);
 
