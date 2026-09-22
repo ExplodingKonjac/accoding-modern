@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.17.0
+// @version      1.17.1
 // @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @run-at       document-end
@@ -14,7 +14,7 @@
 
 (() => {
 'use strict';
-const ACCODING_MODERN_VERSION="1.17.0";
+const ACCODING_MODERN_VERSION="1.17.1";
 if (location.origin !== 'https://accoding.buaa.edu.cn:4000') return;
 function createContestCore() {
   const decode = value => {
@@ -1415,13 +1415,16 @@ function createAiReviewCore() {
   const hash=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
   function hasFeatureReview(r){const d=r?.result;if(r?.decision_kind==='human_review')return hash(r.configuration_sha256)&&hash(r.code_hash)&&typeof r.run_id==='string'&&!!r.run_id&&typeof d?.ai_suspected==='boolean'&&typeof d.reason==='string'&&Array.isArray(d.label)&&d.label.length===0&&Number.isInteger(r.annotation?.id);return ((r?.decision_kind==='rule_feature_candidate'&&typeof r.rule_version==='string'&&!!r.rule_version&&r.call_id===null)||(r?.decision_kind==='llm_feature_presence'&&(hash(r.model_digest)||(r.backend_kind==='remote_api'&&r.model_digest===null&&hash(r.execution_config_sha256)&&typeof r.requested_model==='string'))))&&hash(r.configuration_sha256)&&hash(r.code_hash)&&typeof r.run_id==='string'&&!!r.run_id&&d?.ai_suspected===true&&Object.keys(d).sort().join(',')==='ai_suspected,label,reason'&&typeof d.reason==='string'&&!!d.reason.trim()&&Array.isArray(d.label)&&d.label.length>0&&new Set(d.label).size===d.label.length&&d.label.every(x=>featureLabels.includes(x));}
   async function verifySource(code,expected){if(typeof code!=='string'||!hash(expected))throw new Error('源码或校验摘要缺失');const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(code));const actual=[...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,'0')).join('');if(actual!==expected)throw new Error('源码哈希与核查时不一致，请打开 OJ 原提交人工核验。');return code;}
-  async function sourceFromOj(text,id,expected){
+  function sourceVariants(text,id){
     const header=text.match(/^\/\*[\s\S]*?\*\//),candidates=[text];
     if(header&&/Author:/.test(header[0])&&/Created at:/.test(header[0])&&/Submission_id:/.test(header[0])){
       if(header[0].match(/Submission_id:\s*(\d+)/)?.[1]!==String(id))throw new Error('OJ 返回的提交编号与上下文不一致');
       const body=text.slice(header[0].length);candidates.push(body,body.replace(/^\r?\n\r?\n/,''),body.trim());
     }
-    for(const code of [...new Set(candidates)]){try{return await verifySource(code,expected);}catch{}}
+    return [...new Set(candidates.flatMap(code=>[code,...(code.startsWith('\n')?[code.slice(1)]:[]),...(code.startsWith('\r\n')?[code.slice(2)]:[])]))];
+  }
+  async function sourceFromOj(text,id,expected){
+    for(const code of sourceVariants(text,id)){try{return await verifySource(code,expected);}catch{}}
     throw new Error('源码哈希与核查时不一致，请打开 OJ 原提交人工核验。');
   }
   function hasFlaggedReview(r){return r?.ai_suspected===true&&typeof r.model_digest==='string'&&/^[a-f0-9]{64}$/.test(r.model_digest)&&Number.isFinite(r.score)&&Number.isFinite(r.threshold)&&r.score>=r.threshold;}
@@ -1488,13 +1491,43 @@ function createAiReviewCore() {
     }
     solve(a,b,1,1);return output;
   }
-  return {lineDiff,api,apiV3,apiV4,selections,states,featureLabels,members,hasFlaggedReview,hasFeatureReview,verifySource,sourceFromOj,client,featureClient};
+  return {lineDiff,api,apiV3,apiV4,selections,states,featureLabels,members,hasFlaggedReview,hasFeatureReview,verifySource,sourceVariants,sourceFromOj,client,featureClient};
+}
+
+// Prove existing OJ source-read access without transferring login cookies.
+const reviewAccessSessions=new Map(),reviewAccessPending=new Map();
+async function ensureReviewAccess(contestId,core){
+  const cid=Number(contestId),link=[...document.querySelectorAll('a[href]')].find(a=>/^\/user\/\d+\/index$/.test(a.getAttribute('href')||''));
+  if(!link||!document.querySelector('a[href="/user/logout"]'))throw new Error('请先登录 OJ 后刷新重试。');
+  const userId=link.getAttribute('href').split('/')[2],key=userId+':'+cid;
+  const saved=reviewAccessSessions.get(key);
+  if(saved&&saved.expires>Date.now()/1000+60)return saved.token;
+  if(reviewAccessPending.has(key))return reviewAccessPending.get(key);
+  const pending=(async()=>{
+    const api='https://muzermat.online:8443/oj-review-api/v4';
+    const post=async(path,body)=>{const r=await fetch(api+path,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'omit',cache:'no-store',body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});const value=await r.json();if(!r.ok)throw new Error(value.detail||'OJ 权限验证失败，请刷新重试。');return value;};
+    const hash=async value=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(v=>v.toString(16).padStart(2,'0')).join('');
+    const challenge=await post('/access/challenge',{contest_id:cid,user_id:userId,display_name:link.textContent.trim()||'OJ 助教'});
+    if(!Array.isArray(challenge.submission_ids)||challenge.submission_ids.length!==3||challenge.submission_ids.some(s=>!/^\d+$/.test(s)))throw new Error('权限验证数据无效。');
+    const answers=await Promise.all(challenge.submission_ids.map(async sid=>{
+      const r=await fetch('/submission/'+sid,{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)});
+      const node=new DOMParser().parseFromString(await r.text(),'text/html').querySelector('pre code');
+      if(!r.ok||!node)throw new Error('当前 OJ 账号没有读取此比赛源码的权限。');
+      return Promise.all(core.sourceVariants(node.textContent,sid).slice(0,10).map(async code=>hash(challenge.nonce+':'+await hash(code))));
+    }));
+    const session=await post('/access/verify',{challenge_id:challenge.challenge_id,answers});
+    if(session.contest_id!==cid||typeof session.token!=='string'||!Number.isFinite(session.expires))throw new Error('权限验证结果无效。');
+    reviewAccessSessions.set(key,session);return session.token;
+  })();
+  reviewAccessPending.set(key,pending);
+  try{return await pending;}finally{reviewAccessPending.delete(key);}
 }
 
 function createAiReviewPanel(container,core,getContext,_readMetadata,options={}) {
-  const noteKey='accoding-modern.ai-review.notes.v1',tokenKey='accoding-modern.ai-review.reviewer.v1';
+  const noteKey='accoding-modern.ai-review.notes.v1';
+  let accessToken='';
   let generation=0,controller=null,timer=null,rows=[],page=0,total=0,active=false,detailVersion=0,detailController=null,runs=[],runId='';
-  const getToken=()=>localStorage.getItem(tokenKey)||'';
+  const getToken=()=>accessToken;
   const client=core.featureClient(getToken,fetch,4),size=30;
   const el=(tag,text)=>{const n=document.createElement(tag);if(text!=null)n.textContent=String(text);return n;};
   const button=(text,fn)=>{const b=el('button',text);b.type='button';b.onclick=fn;return b;};
@@ -1509,13 +1542,9 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   const style=el('style');style.textContent=`.ar-toolbar,.ar-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}.ar-toolbar select{min-width:140px;flex:1}.ar-actions button{min-height:38px}.ar-auth{padding:12px;border:1px solid #dce3ed;border-radius:10px;margin:12px 0}.ar-auth input{min-width:200px;flex:1}.ar-note{display:block;width:100%;min-height:100px;padding:12px;border:1px solid #ccd9e9;border-radius:8px;box-sizing:border-box;font:inherit}.ar-source,.ar-diff{font:13px/1.65 ui-monospace,monospace;overflow:auto;max-height:540px;background:#f7f9fc;padding:12px;border:1px solid #dce3ed;border-radius:8px}.ar-diff{padding:0;white-space:pre}.ar-diff-line{display:block;min-width:max-content;padding:0 12px}.ar-diff-line.remove{background:#ffebe9;color:#82071e}.ar-diff-line.add{background:#dafbe1;color:#116329}.ar-diff-line.equal{background:#fff;color:#334155}.ar-history{border-left:3px solid #d7e3f7;padding:10px 14px;margin:12px 0}.ar-close{float:right} .ar-table td{white-space:normal;min-width:90px}.ar-table td:last-child{white-space:nowrap}@media(max-width:650px){.ar-toolbar>*{flex:1 1 150px}.ar-actions>*{flex:1}.ar-source{font-size:12px}}`;
   const controls=el('div');controls.className='ar-toolbar';controls.append(problem,feature);
   const actions=el('div');actions.className='ar-actions';actions.append(button('刷新云端结果',()=>void reload()),button('导出当前结果',()=>void exportRows()));
-  const sidInput=el('input');sidInput.placeholder='提交 ID（含规则未命中）';sidInput.inputMode='numeric';sidInput.setAttribute('aria-label','复核提交 ID');
+  const sidInput=el('input');sidInput.placeholder='提交 ID（含规则未命中）';sidInput.inputMode='numeric';sidInput.type='number';sidInput.min='1';sidInput.autocomplete='off';sidInput.setAttribute('aria-label','复核提交 ID');
   actions.append(sidInput,button('查看提交',()=>{if(/^[1-9]\d*$/.test(sidInput.value.trim()))void openDetail(sidInput.value.trim());else message.textContent='请输入有效的提交 ID。';}));
-  const auth=el('details');auth.className='ar-auth';auth.append(el('summary','助教云端同步设置'));
-  const token=el('input');token.type='password';token.autocomplete='off';token.placeholder='填写助教同步密钥';token.setAttribute('aria-label','助教同步密钥');
-  const authStatus=el('p',getToken()?'已保存同步密钥，人工反馈将从云端读取。':'查看、修改人工结论前，请填写由核查系统签发的助教同步密钥。');
-  const authActions=el('div');authActions.className='ar-actions';authActions.append(token,button('连接并保存',async()=>{const proposed=token.value.trim();if(!proposed){authStatus.textContent='请填写同步密钥。';return;}try{const reader=core.featureClient(()=>proposed,fetch,4),who=await reader.session();localStorage.setItem(tokenKey,proposed);token.value='';authStatus.textContent=`已连接：${who.display_name} · 人工反馈自动同步`;void reload();}catch(e){authStatus.textContent=e.message;}}),button('退出同步',()=>{localStorage.removeItem(tokenKey);authStatus.textContent='已退出助教同步。';void reload();}));auth.append(authActions,authStatus);
-  container.append(style,el('h2','代码复核'),controls,actions,auth,message,progress,list,pager,detail);
+  container.append(style,el('h2','代码复核'),controls,actions,message,progress,list,pager,detail);
   if(options.submissionId){controls.hidden=actions.hidden=message.hidden=list.hidden=pager.hidden=true;}
   function contextKey(){const c=getContext();return `${c.classId||''}:${c.contest?.id||''}:${c.generation}`;}
   function key(){return contextKey()+':v4:'+runId;}
@@ -1524,7 +1553,7 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   function reset(){stop();rows=[];runs=[];total=page=0;runId='';detail.hidden=true;detail.replaceChildren();progress.textContent='';message.textContent='读取比赛后，打开代码复核。';draw();}
   function query(c,offset=page*size,limit=size){return {contest_id:Number(c.contest.id),creator_ids:[...core.members(c.summary.rows).keys()],offset,limit,run_id:runId,...(problem.value==='all'?{}:{problem_id:Number(problem.value)}),...(feature.value==='all'?{}:{label:feature.value})};}
   function fillRuns(values){runs=[...values].sort((a,b)=>(Number(b.created_at)||0)-(Number(a.created_at)||0)||b.run_id.localeCompare(a.run_id));const latest=runs[0]?.run_id||'';if(latest!==runId)page=0;runId=latest;}
-  function showProgress(b){progress.textContent=b?(b.backend_kind==='rules_engine'?`全量规则 · 每人每题最新 1 份，每人最多 8 份 · ${b.screening?.complete?'已同步':'同步中'}`:`历史核查运行 · ${core.states[b.state]||b.state}`):'尚无已同步的核查运行。';}
+  function showProgress(){progress.textContent='';}
   async function refresh(){
     stop();const v=generation,k=contextKey(),c=getContext();detail.hidden=true;detail.replaceChildren();
     if(!active||!c.contest||!c.summary){message.textContent='请先读取比赛和榜单。';return;}
@@ -1534,10 +1563,11 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
     try{
       const state=await client.progress(c.contest.id,current.signal);if(v!==generation||k!==contextKey())return;
       fillRuns(state.runs);showProgress(runs[0]);if(!runId){message.textContent='尚无核查结果，请先在核查系统发布比赛。';return;}
+      accessToken=await ensureReviewAccess(c.contest.id,core);if(v!==generation||k!==contextKey())return;
       const requestKey=key(),result=await client.search(query(c),current.signal);if(v!==generation||requestKey!==key())return;
       const memberMap=core.members(c.summary.rows);rows=result.reviews.map(r=>({...r,member:memberMap.get(String(r.creator_id))}));total=result.total;
       if(total&&page*size>=total){page=Math.floor((total-1)/size);void refresh();return;}
-      message.textContent=`${c.className} · ${total} 条${getToken()?' · 已同步助教结论':' · 连接助教同步后可查看人工修改'}`;draw();
+      message.textContent=`${c.className} · ${total} 条`;draw();
     }catch(e){if(v===generation){rows=[];total=0;draw();message.textContent=e.name==='AbortError'?'读取超时，请刷新重试。':e.message;}}
     finally{clearTimeout(timeout);if(controller===current)controller=null;}
   }
@@ -1559,12 +1589,13 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
     const valid=()=>n===detailVersion&&base===contextKey();
     try{
       if(options.submissionId||!runId){const state=await client.submissionRuns(String(id),c.signal);if(!valid())return;fillRuns(state.runs);showProgress(runs[0]);}
+      if(runId){accessToken=await ensureReviewAccess(runs[0].contest_id,core);if(!valid())return;}
       let r=runId?await client.detail(String(id),runId,c.signal):null;if(!valid())return;
       if(!r&&runId&&getToken()){const source=await client.source(String(id),runId,c.signal);r={...source,run_id:runId,decision_kind:'unflagged',result:{label:[],reason:'未列入规则嫌疑清单；可修改结论并填写理由。'},evidence:[],code:await readOj(id,source.code_hash,c.signal)};}
       if(!valid())return;
       if(r&&!options.submissionId){const ctx=getContext();if(r.contest_id!==Number(ctx.contest.id)||!core.members(ctx.summary.rows).has(String(r.creator_id)))throw Error('详情与当前班级不一致');}
       const close=button('收起详情',()=>{detailVersion++;c.abort();detail.hidden=true;});close.className='ar-close';detail.replaceChildren(close,el('h3',`提交 ${id}`));
-      if(!r){detail.append(el('p','尚无可用结果。请连接助教云端同步，并在核查系统发布此比赛的源码清单，即可补报规则未命中的提交。'));return;}
+      if(!r){detail.append(el('p','尚无可用结果。请先在核查系统同步此比赛的源码清单。'));return;}
       const judgementLabel=el('p',judgement(r));judgementLabel.dataset.reviewJudgement='1';detail.append(judgementLabel,el('p','原始依据：'+r.result.reason),el('p','原始特征：'+(r.result.label||[]).join('；')),el('h3','本提交源码'),pre(r.code.split('\n').map((line,i)=>`${i+1}  ${line}`).join('\n')));
       for(const ref of [...new Map((r.context_references||[]).map(x=>[x.submission_id,x])).values()]){
         const word=ref.relation==='later'?'后版':'前版',a=el('a',`在 OJ 打开${word} ${ref.submission_id}`);a.href=`/submission/${ref.submission_id}`;a.target='_blank';a.rel='noopener';const comparison=el('section');
@@ -1573,7 +1604,7 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
       }
       for(const e of r.evidence||[])detail.append(el('h3',`证据 · 第 ${e.start_line}–${e.end_line} 行`),pre(e.quote));
       detail.append(el('p',`源码校验：${r.code_hash}`));
-      if(getToken())await feedbackEditor(r,c.signal,valid);else detail.append(el('p','在“助教云端同步设置”连接后，可修改结论并填写理由。'));
+      await feedbackEditor(r,c.signal,valid);
       if(valid())detail.scrollIntoView({block:'start',behavior:'smooth'});
     }catch(e){if(valid())detail.replaceChildren(el('p',e.name==='AbortError'?'读取超时，请重试。':e.message));}finally{clearTimeout(timeout);}
   }
@@ -1584,7 +1615,7 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
     if(history.latest){mark.value=history.latest.status;note.value=history.latest.reason;}else{mark.value=r.annotation?.status||(r.decision_kind==='unflagged'?'ordinary':'suspected');try{const notes=JSON.parse(localStorage.getItem(noteKey)||'{}'),old=notes[r.run_id+':'+r.submission_id+':'+r.code_hash]||notes[r.submission_id+':'+r.code_hash];if(old){mark.value=({retained:'suspected',ordinary:'ordinary'})[old.status]||mark.value;note.value=old.note||'';}}catch{}}
     const status=el('p'),historyBox=el('div'),bar=el('div');bar.className='ar-actions';let pending=null;
     function drawHistory(){historyBox.replaceChildren();for(const h of history.history){const item=el('div');item.className='ar-history';item.append(el('strong',`${h.reviewer_name} · ${labels[h.status]} · ${new Date(h.created*1000).toLocaleString()}`),el('p',h.reason));historyBox.append(item);}if(!history.history.length)historyBox.append(el('p','暂无云端人工记录。'));}
-    const save=button('保存结论与理由到云端',async()=>{if(!note.value.trim()){status.textContent='请填写理由后保存。';note.focus();return;}save.disabled=true;const body={submission_id:r.submission_id,code_hash:r.code_hash,run_id:r.run_id,status:mark.value,reason:note.value.trim(),code:r.code,base_revision:history.latest?.id||0};const signature=JSON.stringify(body);if(pending?.signature!==signature)pending={signature,request_id:crypto.randomUUID()};try{await client.saveFeedback({...body,request_id:pending.request_id},AbortSignal.timeout(20000));if(!valid())return;history=await client.feedback(r.submission_id,r.code_hash,r.run_id,AbortSignal.timeout(15000));if(!valid())return;pending=null;r.annotation=history.latest;const row=rows.find(x=>x.submission_id===r.submission_id&&x.code_hash===r.code_hash);if(row)row.annotation=history.latest;draw();const label=detail.querySelector('[data-review-judgement]');if(label)label.textContent=judgement(r);drawHistory();status.textContent='已保存到云端，其他助教刷新后即可查看。';}catch(e){if(valid())status.textContent=e.message+'；草稿已保留，可重试或先刷新历史。';}finally{save.disabled=false;}});save.className='primary';
+    const save=button('保存结论与理由到云端',async()=>{if(!note.value.trim()){status.textContent='请填写理由后保存。';note.focus();return;}save.disabled=true;const body={submission_id:r.submission_id,code_hash:r.code_hash,run_id:r.run_id,status:mark.value,reason:note.value.trim(),code:r.code,base_revision:history.latest?.id||0};const signature=JSON.stringify(body);if(pending?.signature!==signature)pending={signature,request_id:crypto.randomUUID()};try{await client.saveFeedback({...body,request_id:pending.request_id},AbortSignal.timeout(20000));if(!valid())return;history=await client.feedback(r.submission_id,r.code_hash,r.run_id,AbortSignal.timeout(15000));if(!valid())return;pending=null;r.annotation=history.latest;const row=rows.find(x=>x.submission_id===r.submission_id&&x.code_hash===r.code_hash);if(row)row.annotation=history.latest;if(history.latest.status==='ordinary'&&row){rows=rows.filter(x=>x!==row);total=Math.max(0,total-1);message.textContent=`${getContext().className} · ${total} 条`;}draw();const label=detail.querySelector('[data-review-judgement]');if(label)label.textContent=judgement(r);drawHistory();status.textContent='已保存到云端，其他助教刷新后即可查看。';}catch(e){if(valid())status.textContent=e.message+'；草稿已保留，可重试或先刷新历史。';}finally{save.disabled=false;}});save.className='primary';
     bar.append(mark,save,button('刷新云端历史',async()=>{try{history=await client.feedback(r.submission_id,r.code_hash,r.run_id,AbortSignal.timeout(15000));if(valid()){drawHistory();status.textContent='已刷新历史；当前理由草稿保留，请核对后再保存。';}}catch(e){if(valid())status.textContent=e.message;}}));
     detail.append(el('h3','助教复核'),note,bar,status,el('h3','云端修改历史'),historyBox);drawHistory();
   }
@@ -1631,7 +1662,7 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     <div id="message" class="message" role="status" aria-live="polite" hidden></div>
     <section id="import-panel" class="panel" hidden><h2>从 Excel 创建班级</h2><div class="row"><input id="file" type="file" accept=".xlsx" aria-label="选择 XLSX 名册"><label>工作表 <select id="sheet" disabled></select></label><label>班级名称 <input id="class-name" maxlength="80" placeholder="例如：26 秋程设 · 王君臣"></label><button class="primary" data-action="create" disabled>确认创建</button><button data-action="cancel-import">取消</button></div><div id="preview" class="preview"></div></section>
     <div id="empty" class="panel empty">导入一份 XLSX 名册，开始查看班级学习情况。</div>
-    <main id="workspace" hidden><section class="panel"><div class="toolbar"><div><h2>比赛学习情况</h2></div><div class="row"><select id="contest-select" class="wide" aria-label="选择比赛"><option value="">选择可见比赛</option></select><input id="contest-id" inputmode="numeric" placeholder="或输入比赛 ID" size="12" aria-label="比赛 ID"><button class="primary" data-action="load">读取比赛</button><button data-action="refresh">刷新统计</button></div></div><p id="contest-title" class="muted"></p></section><div class="row" role="tablist" aria-label="班级比赛页面"><button id="contest-tab" data-action="contest-tab" role="tab" aria-selected="true" aria-controls="contest-pane" class="primary">比赛统计</button><button id="upsolve-tab" data-action="upsolve-tab" role="tab" aria-selected="false" aria-controls="upsolve-pane">补题排行榜</button><button id="review-tab" data-action="review-tab" role="tab" aria-selected="false" aria-controls="review-pane">代码复核</button></div><section id="review-pane" class="panel" role="tabpanel" aria-labelledby="review-tab" hidden></section><div id="contest-pane" role="tabpanel" aria-labelledby="contest-tab">
+    <main id="workspace" hidden><section class="panel"><div class="toolbar"><div><h2>比赛学习情况</h2></div><div class="row"><select id="contest-select" class="wide" aria-label="选择比赛"><option value="">选择可见比赛</option></select><input id="contest-id" type="number" min="1" autocomplete="off" inputmode="numeric" placeholder="或输入比赛 ID" size="12" aria-label="比赛 ID"><button class="primary" data-action="load">读取比赛</button><button data-action="refresh">刷新统计</button></div></div><p id="contest-title" class="muted"></p></section><div class="row" role="tablist" aria-label="班级比赛页面"><button id="contest-tab" data-action="contest-tab" role="tab" aria-selected="true" aria-controls="contest-pane" class="primary">比赛统计</button><button id="upsolve-tab" data-action="upsolve-tab" role="tab" aria-selected="false" aria-controls="upsolve-pane">补题排行榜</button><button id="review-tab" data-action="review-tab" role="tab" aria-selected="false" aria-controls="review-pane">代码复核</button></div><section id="review-pane" class="panel" role="tabpanel" aria-labelledby="review-tab" hidden></section><div id="contest-pane" role="tabpanel" aria-labelledby="contest-tab">
     <div id="metrics" class="cards"></div><section id="stats-panel" class="panel" hidden><div class="toolbar"><h2>逐题通过情况</h2><span id="chart-legend" class="muted">蓝色：通过人数　浅蓝：尝试人数</span></div><div id="chart" class="chart"></div></section>
     <section id="accepted-panel" class="panel" hidden><div class="toolbar"><h2>按题查看通过提交</h2><div class="row"><select id="accepted-problem" aria-label="选择通过提交的题目"><option value="">选择一道题</option></select><input id="accepted-search" placeholder="搜索姓名、学号、班级" aria-label="搜索通过同学"><select id="accepted-mode" aria-label="通过提交显示方式"><option value="latest">每人最新一条 AC</option><option value="all">全部 AC 提交</option></select><button data-action="refresh-accepted" disabled>刷新通过提交</button></div></div><p class="muted">仅显示本班同学在比赛时间内的 AC 提交。</p><p id="accepted-count" class="muted" role="status" aria-live="polite"></p><div id="accepted-table" class="table-wrap"></div><div id="accepted-pager" class="pager"></div></section>
     <section class="panel"><div class="toolbar"><h2>班级同学</h2><div class="row"><input id="search" placeholder="搜索姓名、学号、班级" aria-label="搜索学生"><select id="member-filter" aria-label="筛选学生"><option value="all">全部同学</option><option value="matched">已匹配</option><option value="missing">榜单未找到</option><option value="ambiguous">学号冲突</option></select></div></div><div id="members" class="table-wrap"></div><div id="member-pager" class="pager"></div></section>

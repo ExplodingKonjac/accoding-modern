@@ -8,13 +8,16 @@ export function createAiReviewCore() {
   const hash=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
   function hasFeatureReview(r){const d=r?.result;if(r?.decision_kind==='human_review')return hash(r.configuration_sha256)&&hash(r.code_hash)&&typeof r.run_id==='string'&&!!r.run_id&&typeof d?.ai_suspected==='boolean'&&typeof d.reason==='string'&&Array.isArray(d.label)&&d.label.length===0&&Number.isInteger(r.annotation?.id);return ((r?.decision_kind==='rule_feature_candidate'&&typeof r.rule_version==='string'&&!!r.rule_version&&r.call_id===null)||(r?.decision_kind==='llm_feature_presence'&&(hash(r.model_digest)||(r.backend_kind==='remote_api'&&r.model_digest===null&&hash(r.execution_config_sha256)&&typeof r.requested_model==='string'))))&&hash(r.configuration_sha256)&&hash(r.code_hash)&&typeof r.run_id==='string'&&!!r.run_id&&d?.ai_suspected===true&&Object.keys(d).sort().join(',')==='ai_suspected,label,reason'&&typeof d.reason==='string'&&!!d.reason.trim()&&Array.isArray(d.label)&&d.label.length>0&&new Set(d.label).size===d.label.length&&d.label.every(x=>featureLabels.includes(x));}
   async function verifySource(code,expected){if(typeof code!=='string'||!hash(expected))throw new Error('源码或校验摘要缺失');const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(code));const actual=[...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,'0')).join('');if(actual!==expected)throw new Error('源码哈希与核查时不一致，请打开 OJ 原提交人工核验。');return code;}
-  async function sourceFromOj(text,id,expected){
+  function sourceVariants(text,id){
     const header=text.match(/^\/\*[\s\S]*?\*\//),candidates=[text];
     if(header&&/Author:/.test(header[0])&&/Created at:/.test(header[0])&&/Submission_id:/.test(header[0])){
       if(header[0].match(/Submission_id:\s*(\d+)/)?.[1]!==String(id))throw new Error('OJ 返回的提交编号与上下文不一致');
       const body=text.slice(header[0].length);candidates.push(body,body.replace(/^\r?\n\r?\n/,''),body.trim());
     }
-    for(const code of [...new Set(candidates)]){try{return await verifySource(code,expected);}catch{}}
+    return [...new Set(candidates.flatMap(code=>[code,...(code.startsWith('\n')?[code.slice(1)]:[]),...(code.startsWith('\r\n')?[code.slice(2)]:[])]))];
+  }
+  async function sourceFromOj(text,id,expected){
+    for(const code of sourceVariants(text,id)){try{return await verifySource(code,expected);}catch{}}
     throw new Error('源码哈希与核查时不一致，请打开 OJ 原提交人工核验。');
   }
   function hasFlaggedReview(r){return r?.ai_suspected===true&&typeof r.model_digest==='string'&&/^[a-f0-9]{64}$/.test(r.model_digest)&&Number.isFinite(r.score)&&Number.isFinite(r.threshold)&&r.score>=r.threshold;}
@@ -81,5 +84,5 @@ export function createAiReviewCore() {
     }
     solve(a,b,1,1);return output;
   }
-  return {lineDiff,api,apiV3,apiV4,selections,states,featureLabels,members,hasFlaggedReview,hasFeatureReview,verifySource,sourceFromOj,client,featureClient};
+  return {lineDiff,api,apiV3,apiV4,selections,states,featureLabels,members,hasFlaggedReview,hasFeatureReview,verifySource,sourceVariants,sourceFromOj,client,featureClient};
 }
