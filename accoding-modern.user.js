@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.18.1
+// @version      1.18.2
 // @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @run-at       document-end
@@ -14,7 +14,7 @@
 
 (() => {
 'use strict';
-const ACCODING_MODERN_VERSION="1.18.1";
+const ACCODING_MODERN_VERSION="1.18.2";
 if (location.origin !== 'https://accoding.buaa.edu.cn:4000') return;
 function createContestCore() {
   const decode = value => {
@@ -1409,7 +1409,7 @@ function createAiReviewCore() {
   const api='https://muzermat.online:8443/oj-review-api/v2';
   const apiV4='https://muzermat.online:8443/oj-review-api/v4';
   const apiV3='https://muzermat.online:8443/oj-review-api/v3';
-  const featureLabels=['输入失败防护','讲解性注释','编号步骤','对答式注释','模板化说明','注释密集','生成回答残留','短时间大幅改写','短时间码风突变','注释表达特征','模型来源注释','代码结构大幅变化','跨题码风变化','罕见共同代码片段','罕见高级用法'];
+  const featureLabels=['输入失败防护','讲解性注释','编号步骤','对答式注释','模板化说明','注释密集','生成回答残留','短时间大幅改写','短时间码风突变','注释表达特征','模型来源注释','代码结构大幅变化','跨题码风变化','罕见共同代码片段','罕见高级用法','长变量命名'];
   const selections={candidate:'候选复核',sample:'连续提交抽样',manual:'单独复核'};
   const states={paused:'已暂停',running:'正在复核',completed:'复核完成',completed_with_errors:'已结束，部分失败',failed:'运行失败'};
   const hash=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
