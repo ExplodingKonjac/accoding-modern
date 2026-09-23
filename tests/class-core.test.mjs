@@ -55,3 +55,23 @@ test('problem AC selection uses matched class accounts and exact problem IDs, ke
   assert.deepEqual(core.problemSubmissions(raw,[],'99'),[]);
   assert.throws(()=>core.problemSubmissions({error:'denied'},students,'99'),/格式/);
 });
+test('single problem review picks one AC or the latest two attempts per matched user',()=>{
+  const students=[{studentId:'001',status:'matched',userId:'1'},{studentId:'002',status:'matched',userId:'2'},{studentId:'003',status:'matched',userId:'3'},{studentId:'004',status:'ambiguous',userId:'4'}];
+  const raw=[
+    {id:1,creator_id:1,problem_id:99,result:'WA'},
+    {id:2,creator_id:1,problem_id:99,result:'AC'},
+    {id:3,creator_id:1,problem_id:99,result:'AC'},
+    {id:4,creator_id:1,problem_id:99,result:'WA'},
+    {id:5,creator_id:2,problem_id:99,result:'WA'},
+    {id:6,creator_id:2,problem_id:99,result:'CE'},
+    {id:7,creator_id:2,problem_id:99,result:'JG'},
+    {id:8,creator_id:3,problem_id:99,result:'WA'},
+    {id:9,creator_id:4,problem_id:99,result:'AC'},
+    {id:10,creator_id:1,problem_id:98,result:'AC'},
+    {id:7,creator_id:2,problem_id:99,result:'JG'}
+  ];
+  assert.deepEqual(core.problemReviewSubmissions(raw,students,'99').map(x=>x.submission.id),[3,7,6,8]);
+  assert.deepEqual(core.problemReviewSubmissions(raw,students,'98').map(x=>x.submission.id),[10]);
+  assert.deepEqual(core.problemReviewSubmissions(raw,students,'100'),[]);
+  assert.throws(()=>core.problemReviewSubmissions({},students,'99'),/格式/);
+});

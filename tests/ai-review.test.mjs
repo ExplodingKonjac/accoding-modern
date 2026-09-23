@@ -59,19 +59,30 @@ test('OJ metadata wrapper is removed only for the matching submission and frozen
   await assert.rejects(()=>core.sourceFromOj(header+code+'changed','99',featurePositive.code_hash),/哈希/);
 });
 
-test('v4 public reads work without a reviewer token',async()=>{
+test('v4 full class search requests all four statuses with a reviewer session',async()=>{
   const calls=[];
-  const client=core.featureClient(()=>'',async(url,options)=>{
+  const client=core.featureClient(()=>'session',async(url,options)=>{
     calls.push({url,options});
     const reply=new URL(url).pathname.endsWith('/progress')||new URL(url).pathname.endsWith('/runs')?{runs:[{run_id:'run-one',contest_id:1299,configuration_sha256:'b'.repeat(64)}]}:
-      url.endsWith('/search')?{run_id:'run-one',total:1,reviews:[featurePositive]}:featurePositive;
+      url.endsWith('/search')?{run_id:'run-one',total:1,reviews:[{...featurePositive,review_status:'rule_hit_unreviewed'}]}:{...featurePositive,review_status:'rule_hit_unreviewed'};
     return {ok:true,json:async()=>reply};
   },4);
   await client.progress(1299);await client.submissionRuns('1');
-  await client.search({run_id:'run-one',contest_id:1299,creator_ids:['11'],limit:30});
+  await client.search({run_id:'run-one',contest_id:1299,creator_ids:['11'],limit:30,review_queue_only:true});
   await client.detail('1','run-one');
   assert.equal(calls.length,4);
-  for(const {url,options} of calls){assert.match(url,/\/oj-review-api\/v4\//);assert.equal(options.headers.Authorization,undefined);assert.equal(options.credentials,'omit');}
+  for(const {url,options} of calls){assert.match(url,/\/oj-review-api\/v4\//);assert.equal(options.headers.Authorization,'Bearer session');assert.equal(options.credentials,'omit');}
+  const searchBody=JSON.parse(calls.find(x=>x.url.endsWith('/search')).options.body);
+  assert.equal(searchBody.include_all,true);
+  assert.equal(searchBody.review_queue_only,true);
+});
+test('review record validation accepts signed rules misses and rejects invented states',()=>{
+  const miss={submission_id:'2',creator_id:'11',contest_id:1299,run_id:'run-one',decision_kind:'unflagged',configuration_sha256:'a'.repeat(64),code_hash:'b'.repeat(64),review_status:'rule_unmatched'};
+  assert.equal(core.hasReviewRecord(miss),true);
+  assert.equal(core.hasReviewRecord({...miss,review_status:'rule_hit_unreviewed'}),false);
+  assert.equal(core.hasReviewRecord({...miss,review_status:'invented'}),false);
+  assert.equal(core.hasReviewRecord({...miss,decision_kind:'rule_feature_unretained',review_status:'rule_hit_unreviewed'}),true);
+  assert.equal(core.reviewStates.reviewed_no_ai,'已核查为无AI');
 });
 
 test('rule suspects share the review list without fabricated model receipts',()=>{

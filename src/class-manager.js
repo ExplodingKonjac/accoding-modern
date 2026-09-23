@@ -4,6 +4,7 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
   const root = host.attachShadow({mode: 'open'});
   root.innerHTML = `<style>
     :host{all:initial;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:#25344b}
+    .problem-review-page{position:fixed;inset:0;z-index:2147483001;overflow:auto;background:#eef3f9;padding:20px max(20px,calc((100vw - 1600px)/2));box-sizing:border-box}.problem-review-page>.toolbar{background:#fff;border:1px solid #dfe7f0;border-radius:12px;padding:12px 18px;position:sticky;top:0;z-index:2}.problem-review-page>.panel{margin:14px 0}.overlay:has(.ar-review-page:not([hidden])),.problem-review-page:has(.ar-review-page:not([hidden])){overflow:hidden}@media(max-width:700px){.problem-review-page{padding:8px}}
     .toolbar>.row{gap:8px}.toolbar>h2,.toolbar>div:first-child h2{margin-bottom:0}.toolbar{row-gap:16px}.toolbar input,.toolbar select,.toolbar button{min-height:40px}.toolbar>.row select{min-width:150px}.student-head{flex-wrap:wrap}.student-head>.row{justify-content:flex-end;gap:8px}[role=tablist]{display:inline-flex;background:#e3eaf4;padding:5px;border-radius:12px;gap:4px}[role=tablist] button{border:0;background:transparent;min-width:115px}[role=tablist] button.primary{background:#fff;color:#235de4;box-shadow:0 2px 5px #17385912}textarea{font:inherit}@media(max-width:800px){.toolbar>.row{width:100%}.toolbar>.row>input,.toolbar>.row>select{flex:1;min-width:120px}.student-head>.row{justify-content:flex-start}[role=tablist]{display:flex}[role=tablist] button{flex:1;min-width:0}}
     *{box-sizing:border-box}button,input,select{font:inherit}button,a,input,select{outline-offset:3px}button{cursor:pointer;border:1px solid #d9e2ee;border-radius:9px;background:white;color:#334862;padding:8px 14px}button:hover{background:#edf4ff}button:disabled{opacity:.5;cursor:wait}button.primary{background:#235de4;color:white;border-color:#235de4}button.danger{color:#a43141}.launch{position:fixed;bottom:100px;right:26px;z-index:9998;box-shadow:0 8px 24px #18345322;background:#fff;color:#2458ca;font-weight:700}
     [hidden]{display:none!important}.overlay{position:fixed;inset:0;z-index:2147483000;background:#eef3f9;overflow:auto}.shell{max-width:1500px;margin:auto;padding:24px 32px 60px}.top,.toolbar,.row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.top{justify-content:space-between;margin-bottom:22px}.eyebrow{font-size:12px;color:#4270bc;font-weight:700;letter-spacing:2px}h1{font-size:29px;line-height:1.3;margin:4px 0}h2{font-size:20px;margin:0 0 12px}h3{margin:0 0 10px;font-size:17px}p{margin:6px 0 14px}.muted{color:#6c7b91;font-size:13px}.tag{background:#e3ebfb;color:#385ca0;padding:4px 10px;border-radius:20px;font-size:12px}input,select{border:1px solid #ccd9e9;border-radius:8px;background:#fff;color:#25344b;padding:9px 11px;max-width:100%}input[type=file]{width:100%}label{display:flex;align-items:center;gap:8px}.panel{border:1px solid #dfe7f0;border-radius:16px;background:white;padding:22px;margin:18px 0;box-shadow:0 4px 16px #20335404}.toolbar{justify-content:space-between}.message{min-height:42px;padding:9px 12px;font-size:14px;color:#496680;background:#e8f0ff;border-radius:8px;margin-top:14px}.message.error{background:#fff0ed;color:#a33e36}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0}.metric{background:#fff;border:1px solid #dfe7f0;border-radius:14px;padding:18px}.metric strong{display:block;font-size:32px;line-height:1.3;color:#234f99}.chart{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(175px,1fr))}.problem{padding:16px;border:1px solid #e1e8f1;border-radius:12px}.problem b{font-size:25px}.problem small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#76869c}.bar{height:10px;border-radius:8px;background:#edf1f7;position:relative;margin:9px 0 5px}.bar i{position:absolute;left:0;top:0;bottom:0;border-radius:8px;background:#adc4f4}.bar em{position:absolute;left:0;top:0;bottom:0;border-radius:8px;background:#2b68e8}.counts{display:flex;justify-content:space-between;font-size:13px}.counts span:first-child{color:#235de4;font-weight:700}.table-wrap{overflow:auto;max-height:560px}table{width:100%;border-collapse:collapse;font-size:14px;white-space:nowrap}th{text-align:left;position:sticky;top:0;background:#f5f8fc;z-index:1;color:#617189;font-weight:600}th,td{padding:12px;border-bottom:1px solid #e8edf4}td button{padding:4px 10px;font-size:13px}.ac{color:#16806b;font-weight:700}.pending{color:#997214}.bad{color:#c05b4d}.empty{text-align:center;padding:48px 16px;color:#687c98}.pager{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-top:14px}.preview{max-height:220px;overflow:auto;margin-top:14px}.student-head{display:flex;justify-content:space-between;gap:14px;align-items:center}.wide{min-width:260px}a{color:#235de4;text-decoration:none}dialog{border:1px solid #d7e2f0;border-radius:14px;max-width:440px;width:90%;padding:24px;color:#25344b}dialog::backdrop{background:#17253a77}
@@ -19,11 +20,11 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     <div id="empty" class="panel empty">导入一份 XLSX 名册，开始查看班级学习情况。</div>
     <main id="workspace" hidden><section class="panel"><div class="toolbar"><div><h2>比赛学习情况</h2></div><div class="row"><select id="contest-select" class="wide" aria-label="选择比赛"><option value="">选择可见比赛</option></select><input id="contest-id" type="number" min="1" autocomplete="off" inputmode="numeric" placeholder="或输入比赛 ID" size="12" aria-label="比赛 ID"><button class="primary" data-action="load">读取比赛</button><button data-action="refresh">刷新统计</button></div></div><p id="contest-title" class="muted"></p></section><div class="row" role="tablist" aria-label="班级比赛页面"><button id="contest-tab" data-action="contest-tab" role="tab" aria-selected="true" aria-controls="contest-pane" class="primary">比赛统计</button><button id="upsolve-tab" data-action="upsolve-tab" role="tab" aria-selected="false" aria-controls="upsolve-pane">补题排行榜</button><button id="review-tab" data-action="review-tab" role="tab" aria-selected="false" aria-controls="review-pane">代码复核</button></div><section id="review-pane" class="panel" role="tabpanel" aria-labelledby="review-tab" hidden></section><div id="contest-pane" role="tabpanel" aria-labelledby="contest-tab">
     <div id="metrics" class="cards"></div><section id="stats-panel" class="panel" hidden><div class="toolbar"><h2>逐题通过情况</h2><span id="chart-legend" class="muted">蓝色：通过人数　浅蓝：尝试人数</span></div><div id="chart" class="chart"></div></section>
-    <section id="accepted-panel" class="panel" hidden><div class="toolbar"><h2>按题查看通过提交</h2><div class="row"><select id="accepted-problem" aria-label="选择通过提交的题目"><option value="">选择一道题</option></select><input id="accepted-search" placeholder="搜索姓名、学号、班级" aria-label="搜索通过同学"><select id="accepted-mode" aria-label="通过提交显示方式"><option value="latest">每人最新一条 AC</option><option value="all">全部 AC 提交</option></select><button data-action="refresh-accepted" disabled>刷新通过提交</button></div></div><p class="muted">仅显示本班同学在比赛时间内的 AC 提交。</p><p id="accepted-count" class="muted" role="status" aria-live="polite"></p><div id="accepted-table" class="table-wrap"></div><div id="accepted-pager" class="pager"></div></section>
+    <section id="accepted-panel" class="panel" hidden><div class="toolbar"><h2>按题查看通过提交</h2><div class="row"><select id="accepted-problem" aria-label="选择通过提交的题目"><option value="">选择一道题</option></select><input id="accepted-search" placeholder="搜索姓名、学号、班级" aria-label="搜索通过同学"><select id="accepted-mode" aria-label="通过提交显示方式"><option value="latest">每人最新一条 AC</option><option value="all">全部 AC 提交</option></select><button data-action="refresh-accepted" disabled>刷新通过提交</button><button data-action="review-problem" disabled>进入本题代码核查</button></div></div><p class="muted">仅显示本班同学在比赛时间内的 AC 提交。</p><p id="accepted-count" class="muted" role="status" aria-live="polite"></p><div id="accepted-table" class="table-wrap"></div><div id="accepted-pager" class="pager"></div></section>
     <section class="panel"><div class="toolbar"><h2>班级同学</h2><div class="row"><input id="search" placeholder="搜索姓名、学号、班级" aria-label="搜索学生"><select id="member-filter" aria-label="筛选学生"><option value="all">全部同学</option><option value="matched">已匹配</option><option value="missing">榜单未找到</option><option value="ambiguous">学号冲突</option></select></div></div><div id="members" class="table-wrap"></div><div id="member-pager" class="pager"></div></section>
     </div><section id="upsolve-pane" class="panel" role="tabpanel" aria-labelledby="upsolve-tab" hidden><div class="toolbar"><h2>补题排行榜</h2><div class="row"><label>截止时间 <input id="upsolve-until" type="datetime-local" step="1" aria-label="补题截止时间" title="留空查询至当前时间（北京时间）"></label><button data-action="upsolve" disabled class="primary">更新排行榜</button><button data-action="cancel-upsolve" hidden>取消查询</button></div></div><div class="toolbar" style="margin:12px 0"><div class="row"><select id="ranking-order" aria-label="排名依据"><option value="upsolved">按赛后补过排名</option><option value="total">按累计通过排名</option></select><input id="ranking-search" placeholder="搜索姓名、学号" aria-label="搜索排行榜学生"></div><span id="upsolve-time" class="muted"></span></div><div id="rank-table" class="table-wrap"><div class="empty">读取比赛后，更新补题排行榜。</div></div><div id="rank-pager" class="pager"></div></section>
     <section id="student-panel" class="panel" hidden><div class="student-head"><div><h2 id="student-title"></h2></div><div class="row"><select id="submission-scope" aria-label="提交范围"><option value="contest">赛内提交</option><option value="upsolve" disabled>赛后提交</option><option value="all" disabled>全部提交</option></select><select id="problem-filter" aria-label="筛选题目"><option value="all">全部题目</option></select><select id="result-filter" aria-label="筛选提交结果"><option value="all">全部结果</option><option value="AC">仅通过</option><option value="failed">未通过（已评测）</option><option value="pending">评测中</option></select><button data-action="refresh-submissions">刷新提交</button><button data-action="close-student">收起</button></div></div><div id="student-problems" class="table-wrap" hidden style="margin:16px 0"></div><div id="submissions" class="table-wrap"></div><div id="submission-pager" class="pager"></div></section></main>
-    </div><dialog id="confirm-dialog"><h2 id="dialog-title"></h2><p id="dialog-text"></p><input id="dialog-input" maxlength="80" hidden><div class="pager"><button data-action="dialog-cancel">取消</button><button class="primary" data-action="dialog-confirm">确认</button></div></dialog>
+    </div><section id="problem-review-page" class="problem-review-page" hidden aria-label="本题提交核查"><div class="toolbar"><h2>本题提交核查名单</h2><button data-action="close-problem-review">返回班级页面</button></div><div id="problem-review-content" class="panel"></div></section><dialog id="confirm-dialog"><h2 id="dialog-title"></h2><p id="dialog-text"></p><input id="dialog-input" maxlength="80" hidden><div class="pager"><button data-action="dialog-cancel">取消</button><button class="primary" data-action="dialog-confirm">确认</button></div></dialog>
   </section>`;
   const $ = selector => root.querySelector(selector);
   const key = 'accoding-modern.classes.v1';
@@ -62,8 +63,10 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     target.append(el('span', `共 ${count} 条 · ${page + 1} / ${pages}`, 'muted'), prev, next);
   }
   const reviewPanel=createAiReviewPanel($('#review-pane'),reviewCore,()=>({classId:currentId,className:selected()?.name,contest,summary,generation}),null);
+  const problemReviewPanel=createAiReviewPanel($('#problem-review-content'),reviewCore,()=>({classId:currentId,className:selected()?.name,contest,summary,generation}),null,{problemList:true});
   function resetContest() {
     reviewPanel.reset();
+    problemReviewPanel.setActive(false);problemReviewPanel.reset();$('#problem-review-page').hidden=true;
     generation++; upsolveController?.abort();upsolveController=null;upsolve=null;rankingPage=0;drawStandings();$('#upsolve-time').textContent='';$('[data-action=upsolve]').disabled=true;$('[data-action=cancel-upsolve]').hidden=true;$('#submission-scope').value='contest';for(const o of $('#submission-scope').options)o.disabled=o.value!=='contest';$('#student-problems').hidden=true; rankController?.abort(); subController?.abort(); rankController = subController = null;
     contest = rank = summary = activeStudent = submissionCache = null; memberPage = submissionPage = 0;
     submissionRequest=null;submissionError='';acceptedPage=0;
@@ -116,8 +119,9 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
       $(`#${name}-tab`).setAttribute('aria-selected',String(name===mode));
     }
     activeStudent=null;$('#student-panel').hidden=true;
-    reviewPanel.setActive(mode==='review');
+    const reviewReady=reviewPanel.setActive(mode==='review');
     if(mode==='upsolve')drawStandings();
+    return reviewReady;
   }
   function drawStandings() {
     if(!upsolve){$('#rank-table').replaceChildren(el('div','读取比赛后，更新补题排行榜。','empty'));$('#rank-pager').replaceChildren();return;}
@@ -207,6 +211,7 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
   function drawAccepted() {
     const ready=!!(contest&&summary&&$('#accepted-problem').value);
     $('[data-action=refresh-accepted]').disabled=!ready||!!subController;
+    $('[data-action=review-problem]').disabled=!ready||!!subController;
     $('#accepted-count').textContent='';$('#accepted-pager').replaceChildren();
     if(!ready||!submissionCache){
       $('#accepted-table').replaceChildren(el('p',!ready?'选择一道题，查看本班通过同学的提交记录。':submissionError||'正在读取本场比赛的提交记录…',submissionError&&ready?'bad':'muted'));
@@ -215,8 +220,8 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     const all=acceptedRows(), students=acceptedStudents(all), rows=$('#accepted-mode').value==='all'?all:students;
     $('#accepted-count').textContent=`${students.length} 位同学 · ${all.length} 条 AC 提交 · 当前显示 ${rows.length} 条`;
     acceptedPage=Math.min(acceptedPage,Math.max(0,Math.ceil(rows.length/30)-1));
-    $('#accepted-table').replaceChildren(table(['学号','姓名','行政班级','提交 ID','结果','语言','提交时间','代码','记录'],rows.slice(acceptedPage*30,acceptedPage*30+30).map(({member:m,submission:s})=>[
-      m.studentId,m.name,m.group||'—',s.id,el('span','AC','ac'),s.lang,new Date(s.created_at).toLocaleString(),codeLink(s.id),button('查看该题全部提交',()=>showAcceptedStudent(m))
+    $('#accepted-table').replaceChildren(table(['学号','姓名','行政班级','提交 ID','结果','语言','提交时间','代码','代码复核','记录'],rows.slice(acceptedPage*30,acceptedPage*30+30).map(({member:m,submission:s})=>[
+      m.studentId,m.name,m.group||'—',s.id,el('span','AC','ac'),s.lang,new Date(s.created_at).toLocaleString(),codeLink(s.id),button('进入本题核查名单',()=>void openProblemReview()),button('查看该题全部提交',()=>showAcceptedStudent(m))
     ])));
     pager($('#accepted-pager'),rows.length,acceptedPage,page=>{acceptedPage=page;drawAccepted();});
   }
@@ -229,6 +234,18 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     if(!contest||!summary||!$('#accepted-problem').value){drawAccepted();return;}
     await loadSubmissionCache(force);
     drawAccepted();
+  }
+  async function openProblemReview() {
+    if(!contest||!summary||!$('#accepted-problem').value)return;
+    const token=generation,pid=$('#accepted-problem').value;
+    await loadSubmissionCache();
+    if(token!==generation||pid!==$('#accepted-problem').value)return;
+    if(!submissionCache){notice(submissionError||'无法读取本题提交记录。',true);return;}
+    const selected=core.problemReviewSubmissions(contestSubmissions(),summary.rows,pid);
+    const p=contest.problems.find(p=>String(p.id)===pid);
+    problemReviewPanel.setProblemScope({problemId:pid,submissionIds:selected.map(x=>String(x.submission.id)),title:p?`${p.label} · ${p.title}`:pid,attemptedUsers:new Set(selected.map(x=>String(x.member.userId))).size});
+    $('#problem-review-page').hidden=false;$('#problem-review-page').scrollTop=0;
+    await problemReviewPanel.setActive(true);
   }
   function drawStudentProblems() {
     const member=upsolve?.rows.find(m=>m.studentId===activeStudent?.studentId);
@@ -311,7 +328,7 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
       const p=contest.problems.find(p=>p.id===String(s.problem_id));
       const code=/^[1-9]\d*$/.test(String(s.id)) ? el('a','查看代码') : el('span','—');
       if(code.tagName==='A'){code.href=`/submission/${s.id}`;code.target='_blank';code.rel='noopener noreferrer';code.setAttribute('aria-label',`查看提交 ${s.id} 的代码`);}
-      return [s.id,p?`${p.label} · ${p.title}`:String(s.problem_id),el('span',s.result||'待评测',s.result==='AC'?'ac':pending(s)?'pending':'bad'),s.score??'—',s.lang,new Date(s.created_at).toLocaleString(),code,button('查看复核',()=>{switchPane('review');void reviewPanel.openDetail(String(s.id));})];
+      return [s.id,p?`${p.label} · ${p.title}`:String(s.problem_id),el('span',s.result||'待评测',s.result==='AC'?'ac':pending(s)?'pending':'bad'),s.score??'—',s.lang,new Date(s.created_at).toLocaleString(),code,button('查看复核',async()=>{await switchPane('review');await reviewPanel.openDetail(String(s.id));})];
     })));
     pager($('#submission-pager'),rows.length,submissionPage,page=>{submissionPage=page;drawSubmissions();});
   }
@@ -363,7 +380,9 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
       if(action==='refresh-submissions'&&activeStudent){if($('#submission-scope').value!=='contest')void loadUpsolve();else void showStudent(activeStudent,true,true);}
       if(action==='upsolve')void loadUpsolve();
       if(action==='refresh-accepted')void showAccepted(true);
-      if(['contest-tab','upsolve-tab','review-tab'].includes(action))switchPane(action.replace('-tab',''));
+      if(action==='review-problem')void openProblemReview();
+      if(action==='close-problem-review'){problemReviewPanel.setActive(false);$('#problem-review-page').hidden=true;}
+      if(['contest-tab','upsolve-tab','review-tab'].includes(action)){if(action==='review-tab')reviewPanel.setProblemScope(null);switchPane(action.replace('-tab',''));}
       if(action==='cancel-upsolve')upsolveController?.abort();
       if(action==='close-student'){$('#student-panel').hidden=true;activeStudent=null;}
     }catch(e){notice(e.message,true);}
