@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.18.8
+// @version      1.18.9
 // @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @run-at       document-end
@@ -14,7 +14,7 @@
 
 (() => {
 'use strict';
-const ACCODING_MODERN_VERSION="1.18.8";
+const ACCODING_MODERN_VERSION="1.18.9";
 if (location.origin !== 'https://accoding.buaa.edu.cn:4000') return;
 function createContestCore() {
   const decode = value => {
@@ -1535,19 +1535,47 @@ function createAiReviewCore() {
 
 // Prove existing OJ source-read access without transferring login cookies.
 const reviewAccessSessions=new Map(),reviewAccessPending=new Map();
+const reviewProfileNames=new Map(),reviewProfilePending=new Map();
+function reviewAccount(doc){
+  if(!doc.querySelector('a[href="/user/logout"]'))return null;
+  const links=[...doc.querySelectorAll('a[href]')].filter(a=>/^\/user\/\d+\/index$/.test(a.getAttribute('href')||''));
+  // A viewed student's profile link must never become the signed-in reviewer.
+  const welcome=links.find(a=>/^欢迎/.test(a.textContent.trim()));
+  const link=welcome||links.find(a=>a.textContent.replace(/[\s○]/g,'')==='个人信息');
+  if(!link)return null;
+  return {userId:link.getAttribute('href').split('/')[2],name:welcome?.textContent.trim().replace(/^欢迎[，,：:\s]*/,'').trim()||''};
+}
+async function reviewProfileName(userId){
+  userId=String(userId);if(!/^[1-9]\d*$/.test(userId))return '';
+  if(reviewProfileNames.has(userId))return reviewProfileNames.get(userId);
+  if(reviewProfilePending.has(userId))return reviewProfilePending.get(userId);
+  const pending=(async()=>{try{
+    const path=`/user/${userId}/index`,response=await fetch(path,{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)});
+    if(!response.ok||!response.url||new URL(response.url).pathname!==path)return '';
+    const doc=new DOMParser().parseFromString(await response.text(),'text/html');
+    const headings=[...doc.querySelectorAll('h3')];if(headings.length!==1)return '';
+    // OJ profile headings contain an optional rating title followed by the name.
+    const name=headings[0].textContent.trim().replace(/^(?:Legendary Grandmaster|International Grandmaster|Grandmaster|International Master|Candidate Master|Master|Expert|Specialist|Pupil|Newbie|Unrated)\s+/i,'').trim();
+    if(!name||name.length>80||/^(?:登录|用户登录|个人信息|OJ 用户\s*\d+)$/i.test(name))return '';
+    reviewProfileNames.set(userId,name);return name;
+  }catch{return '';}})();
+  reviewProfilePending.set(userId,pending);try{return await pending;}finally{reviewProfilePending.delete(userId);}
+}
+async function reviewHistoryName(record){
+  const stored=(record.reviewer_name||'').trim(),id=record.reviewer_id?.match(/^oj-access-([1-9]\d*)$/)?.[1];
+  if(!id||stored&&!/^OJ\s*用户\s*\d+$/.test(stored)&&stored!=='个人信息')return stored;
+  return await reviewProfileName(id)||stored||`OJ 用户 ${id}`;
+}
 async function ensureReviewAccess(contestId,core){
   const cid=Number(contestId);
-  let accountDocument=document;
-  const accountLink=doc=>[...doc.querySelectorAll('a[href]')].find(a=>/^\/user\/\d+\/index$/.test(a.getAttribute('href')||''));
-  let link=accountLink(accountDocument);
-  // The standalone source page has no account navigation; read the same-origin
-  // homepage using the existing session to identify the signed-in reviewer.
-  if(!link||!accountDocument.querySelector('a[href="/user/logout"]')){
+  let account=reviewAccount(document);
+  // Standalone source pages do not include the signed-in account navigation.
+  if(!account){
     const response=await fetch('/',{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)});
-    if(response.ok){accountDocument=new DOMParser().parseFromString(await response.text(),'text/html');link=accountLink(accountDocument);}
+    if(response.ok)account=reviewAccount(new DOMParser().parseFromString(await response.text(),'text/html'));
   }
-  if(!link||!accountDocument.querySelector('a[href="/user/logout"]'))throw new Error('请先登录 OJ 后刷新重试。');
-  const userId=link.getAttribute('href').split('/')[2],key=userId+':'+cid;
+  if(!account)throw new Error('请先登录 OJ 后刷新重试。');
+  const {userId}=account,key=userId+':'+cid;
   const saved=reviewAccessSessions.get(key);
   if(saved&&saved.expires>Date.now()/1000+60)return saved.token;
   if(reviewAccessPending.has(key))return reviewAccessPending.get(key);
@@ -1555,7 +1583,9 @@ async function ensureReviewAccess(contestId,core){
     const api='https://muzermat.online:8443/oj-review-api/v4';
     const post=async(path,body)=>{const r=await fetch(api+path,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'omit',cache:'no-store',body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});const value=await r.json();if(!r.ok)throw new Error(value.detail||'OJ 权限验证失败，请刷新重试。');return value;};
     const hash=async value=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(v=>v.toString(16).padStart(2,'0')).join('');
-    const challenge=await post('/access/challenge',{contest_id:cid,user_id:userId,display_name:([...accountDocument.querySelectorAll('a[href]')].find(a=>a.getAttribute('href')===link.getAttribute('href')&&/^欢迎/.test(a.textContent.trim()))?.textContent.trim().replace(/^欢迎[，,：:\s]*/,'')||'OJ 用户 '+userId)});
+    const displayName=account.name||await reviewProfileName(userId);
+    if(!displayName)throw new Error('未能读取当前助教姓名，请刷新 OJ 后重试。');
+    const challenge=await post('/access/challenge',{contest_id:cid,user_id:userId,display_name:displayName});
     if(!Array.isArray(challenge.submission_ids)||challenge.submission_ids.length!==3||challenge.submission_ids.some(s=>!/^\d+$/.test(s)))throw new Error('权限验证数据无效。');
     const answers=await Promise.all(challenge.submission_ids.map(async sid=>{
       const r=await fetch('/submission/'+sid,{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)});
@@ -1760,7 +1790,7 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
     const note=el('textarea');note.className='ar-note';note.placeholder='请说明更正或补报的理由，供其他助教及后续规则优化参考。';note.maxLength=3000;note.setAttribute('aria-label','人工复核理由');
     if(history.latest){mark.value=history.latest.status;note.value=history.latest.reason;}else{mark.value=r.annotation?.status||(r.decision_kind==='unflagged'?'ordinary':'suspected');try{const notes=JSON.parse(localStorage.getItem(noteKey)||'{}'),old=notes[r.run_id+':'+r.submission_id+':'+r.code_hash]||notes[r.submission_id+':'+r.code_hash];if(old){mark.value=({retained:'suspected',ordinary:'ordinary'})[old.status]||mark.value;note.value=old.note||'';}}catch{}}
     const status=el('p'),historyBox=el('div'),bar=el('div');bar.className='ar-actions';let pending=null;
-    function drawHistory(){historyBox.replaceChildren();for(const h of history.history){const item=el('div');item.className='ar-history';item.append(el('strong',`${h.reviewer_name} · ${labels[h.status]} · ${new Date(h.created*1000).toLocaleString()}`),el('p',h.reason));historyBox.append(item);}if(!history.history.length)historyBox.append(el('p','暂无云端人工记录。'));}
+    function drawHistory(){historyBox.replaceChildren();for(const h of history.history){const item=el('div');item.className='ar-history';const title=el('strong',`${h.reviewer_name} · ${labels[h.status]} · ${new Date(h.created*1000).toLocaleString()}`);title.title=h.reviewer_id||'';item.append(title,el('p',h.reason));historyBox.append(item);void reviewHistoryName(h).then(name=>{if(valid()&&title.isConnected)title.textContent=`${name} · ${labels[h.status]} · ${new Date(h.created*1000).toLocaleString()}`;});}if(!history.history.length)historyBox.append(el('p','暂无云端人工记录。'));}
     const save=button('保存结论与理由到云端',async()=>{if(!note.value.trim()){status.textContent='请填写理由后保存。';note.focus();return;}save.disabled=true;saving=true;updateNavigation();const body={submission_id:r.submission_id,code_hash:r.code_hash,run_id:r.run_id,status:mark.value,reason:note.value.trim(),code:r.code,base_revision:history.latest?.id||0};const signature=JSON.stringify(body);if(pending?.signature!==signature)pending={signature,request_id:crypto.randomUUID()};try{await client.saveFeedback({...body,request_id:pending.request_id},AbortSignal.timeout(20000));if(!valid())return;history=await client.feedback(r.submission_id,r.code_hash,r.run_id,AbortSignal.timeout(15000));if(!valid())return;pending=null;r.annotation=history.latest;r.review_status=history.latest.status==='suspected'?'reviewed_ai':'reviewed_no_ai';const visible=(options.problemList||r.review_status!=='reviewed_no_ai')&&(state.value==='all'||state.value==='queue'||state.value===r.review_status);cursor?.setVisible(r.submission_id,visible);listDirty=true;const rowIndex=rows.findIndex(x=>String(x.submission_id)===String(r.submission_id)&&x.code_hash===r.code_hash);if(rowIndex>=0){if(!visible){rows.splice(rowIndex,1);total=Math.max(0,total-1);}else{rows[rowIndex].annotation=history.latest;rows[rowIndex].review_status=r.review_status;}}draw();const label=detail.querySelector('[data-review-judgement]');if(label){label.textContent=judgement(r);label.dataset.state=r.review_status;}const reason=detail.querySelector('[data-review-reason]');if(reason)reason.textContent=history.latest.reason;drawHistory();status.textContent='已保存到云端，其他助教刷新后即可查看。';}catch(e){if(valid())status.textContent=e.message+'；草稿已保留，可重试或先刷新历史。';}finally{save.disabled=false;saving=false;if(valid())updateNavigation();}});save.className='primary';
     bar.append(mark,save,button('刷新云端历史',async()=>{try{history=await client.feedback(r.submission_id,r.code_hash,r.run_id,AbortSignal.timeout(15000));if(valid()){drawHistory();status.textContent='已刷新历史；当前理由草稿保留，请核对后再保存。';}}catch(e){if(valid())status.textContent=e.message;}}));
     const target=options.feedbackOnly?detail:detail.querySelector('.ar-review-content')||detail;
