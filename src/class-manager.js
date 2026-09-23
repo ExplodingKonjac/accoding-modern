@@ -62,8 +62,8 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     prev.disabled = page <= 0; next.disabled = page >= pages - 1;
     target.append(el('span', `共 ${count} 条 · ${page + 1} / ${pages}`, 'muted'), prev, next);
   }
-  const reviewPanel=createAiReviewPanel($('#review-pane'),reviewCore,()=>({classId:currentId,className:selected()?.name,contest,summary,generation}),null);
-  const problemReviewPanel=createAiReviewPanel($('#problem-review-content'),reviewCore,()=>({classId:currentId,className:selected()?.name,contest,summary,generation}),null,{problemList:true});
+  const reviewPanel=createAiReviewPanel($('#review-pane'),reviewCore,()=>({classId:currentId,className:selected()?.name,contest,summary,generation}),null,{loadContestSubmissions:reviewContestSubmissions});
+  const problemReviewPanel=createAiReviewPanel($('#problem-review-content'),reviewCore,()=>({classId:currentId,className:selected()?.name,contest,summary,generation}),null,{problemList:true,loadContestSubmissions:reviewContestSubmissions});
   function resetContest() {
     reviewPanel.reset();
     problemReviewPanel.setActive(false);problemReviewPanel.reset();$('#problem-review-page').hidden=true;
@@ -294,6 +294,7 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     await loadSubmissionCache(force);
     drawSubmissions();
   }
+  async function reviewContestSubmissions(){await loadSubmissionCache();if(!submissionCache)throw Error(submissionError||'无法读取比赛提交');return contestSubmissions();}
   async function loadSubmissionCache(force=false) {
     if(submissionRequest&&!force)return submissionRequest;
     if(submissionCache&&!force)return;

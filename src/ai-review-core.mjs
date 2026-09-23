@@ -75,6 +75,18 @@ export function createAiReviewCore() {
       }
     };
   }
+  // Keep the current record as an anchor even when feedback removes it from the queue.
+  function reviewCursor(records,offset,total) {
+    let items=records.map(r=>String(r.submission_id)),start=offset,count=total;
+    const removed=new Set();
+    return {
+      setVisible(id,visible){id=String(id);if(!items.includes(id))return;const wasVisible=!removed.has(id);if(visible===wasVisible)return;if(visible)removed.delete(id);else removed.add(id);count+=visible?1:-1;},
+      neighbor(id,direction){for(let i=items.indexOf(String(id))+direction;i>=0&&i<items.length;i+=direction)if(!removed.has(items[i]))return items[i];return null;},
+      request(direction){const end=start+items.length-removed.size;if(direction>0)return end<count?{offset:end,limit:30}:null;return start>0?{offset:Math.max(0,start-30),limit:Math.min(30,start)}:null;},
+      has(id,direction){return items.includes(String(id))&&!!(this.neighbor(id,direction)||this.request(direction));},
+      extend(result,request,direction){const ids=result.reviews.map(r=>String(r.submission_id));count=result.total;if(direction>0)items.push(...ids.filter(id=>!items.includes(id)));else{items.unshift(...ids.filter(id=>!items.includes(id)));start=request.offset;}}
+    };
+  }
   function lineDiff(before,after){
     const a=before.replace(/\r\n/g,'\n').split('\n'),b=after.replace(/\r\n/g,'\n').split('\n');
     const output=[];
@@ -92,5 +104,5 @@ export function createAiReviewCore() {
     }
     solve(a,b,1,1);return output;
   }
-  return {lineDiff,api,apiV3,apiV4,selections,states,reviewStates,featureLabels,members,hasFlaggedReview,hasFeatureReview,hasReviewRecord,verifySource,sourceVariants,sourceFromOj,client,featureClient};
+  return {reviewCursor,lineDiff,api,apiV3,apiV4,selections,states,reviewStates,featureLabels,members,hasFlaggedReview,hasFeatureReview,hasReviewRecord,verifySource,sourceVariants,sourceFromOj,client,featureClient};
 }

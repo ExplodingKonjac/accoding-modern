@@ -116,3 +116,31 @@ test('TA credentials authenticate feedback without changing the original rule sc
   assert.equal(JSON.parse(calls[0].opts.body).reason,'已核对');
   assert.ok(calls[0].url.endsWith('/feedback'));
 });
+
+test('review cursor continues after all 30 current-page records leave the queue',()=>{
+  const rows=Array.from({length:65},(_,i)=>({submission_id:String(i+1)})),cursor=core.reviewCursor(rows.slice(0,30),0,65);
+  for(let i=1;i<=30;i++){
+    cursor.setVisible(String(i),false);
+    assert.equal(cursor.has(String(i),1),true);
+    assert.equal(cursor.neighbor(String(i),1),i<30?String(i+1):null);
+  }
+  const request=cursor.request(1);assert.deepEqual(request,{offset:0,limit:30});
+  cursor.extend({reviews:rows.slice(30,60),total:35},request,1);
+  assert.equal(cursor.neighbor('30',1),'31');assert.equal(cursor.has('31',-1),false);
+  assert.deepEqual(cursor.request(1),{offset:30,limit:30});
+});
+test('review cursor preserves preceding records and fetches next page without skipping after mixed verdicts',()=>{
+  const rows=Array.from({length:65},(_,i)=>({submission_id:String(i+1)})),cursor=core.reviewCursor(rows.slice(30,60),30,65);
+  cursor.setVisible('60',false);cursor.setVisible('60',false);
+  assert.equal(cursor.neighbor('60',-1),'59');assert.deepEqual(cursor.request(1),{offset:59,limit:30});
+  cursor.extend({reviews:rows.slice(60),total:64},cursor.request(1),1);
+  assert.equal(cursor.neighbor('60',1),'61');assert.equal(cursor.neighbor('61',-1),'59');assert.equal(cursor.has('65',1),false);
+  const prior=cursor.request(-1);assert.deepEqual(prior,{offset:0,limit:30});cursor.extend({reviews:rows.slice(0,30),total:64},prior,-1);
+  assert.equal(cursor.neighbor('31',-1),'30');assert.equal(cursor.has('1',-1),false);
+  cursor.setVisible('60',true);assert.equal(cursor.neighbor('61',-1),'60');
+});
+test('review cursor handles a sole removed record and filtered AI verdicts',()=>{
+  const cursor=core.reviewCursor([{submission_id:'1'}],0,1);cursor.setVisible('1',false);
+  assert.equal(cursor.has('1',1),false);assert.equal(cursor.has('1',-1),false);
+  cursor.setVisible('1',true);assert.equal(cursor.has('1',1),false);
+});
