@@ -59,19 +59,30 @@ test('OJ metadata wrapper is removed only for the matching submission and frozen
   await assert.rejects(()=>core.sourceFromOj(header+code+'changed','99',featurePositive.code_hash),/哈希/);
 });
 
-test('v4 public reads work without a reviewer token',async()=>{
+test('v4 full class search requests all four statuses with a reviewer session',async()=>{
   const calls=[];
-  const client=core.featureClient(()=>'',async(url,options)=>{
+  const client=core.featureClient(()=>'session',async(url,options)=>{
     calls.push({url,options});
     const reply=new URL(url).pathname.endsWith('/progress')||new URL(url).pathname.endsWith('/runs')?{runs:[{run_id:'run-one',contest_id:1299,configuration_sha256:'b'.repeat(64)}]}:
-      url.endsWith('/search')?{run_id:'run-one',total:1,reviews:[featurePositive]}:featurePositive;
+      url.endsWith('/search')?{run_id:'run-one',total:1,reviews:[{...featurePositive,review_status:'rule_hit_unreviewed'}]}:{...featurePositive,review_status:'rule_hit_unreviewed'};
     return {ok:true,json:async()=>reply};
   },4);
   await client.progress(1299);await client.submissionRuns('1');
-  await client.search({run_id:'run-one',contest_id:1299,creator_ids:['11'],limit:30});
+  await client.search({run_id:'run-one',contest_id:1299,creator_ids:['11'],limit:30,review_queue_only:true});
   await client.detail('1','run-one');
   assert.equal(calls.length,4);
-  for(const {url,options} of calls){assert.match(url,/\/oj-review-api\/v4\//);assert.equal(options.headers.Authorization,undefined);assert.equal(options.credentials,'omit');}
+  for(const {url,options} of calls){assert.match(url,/\/oj-review-api\/v4\//);assert.equal(options.headers.Authorization,'Bearer session');assert.equal(options.credentials,'omit');}
+  const searchBody=JSON.parse(calls.find(x=>x.url.endsWith('/search')).options.body);
+  assert.equal(searchBody.include_all,true);
+  assert.equal(searchBody.review_queue_only,true);
+});
+test('review record validation accepts signed rules misses and rejects invented states',()=>{
+  const miss={submission_id:'2',creator_id:'11',contest_id:1299,run_id:'run-one',decision_kind:'unflagged',configuration_sha256:'a'.repeat(64),code_hash:'b'.repeat(64),review_status:'rule_unmatched'};
+  assert.equal(core.hasReviewRecord(miss),true);
+  assert.equal(core.hasReviewRecord({...miss,review_status:'rule_hit_unreviewed'}),false);
+  assert.equal(core.hasReviewRecord({...miss,review_status:'invented'}),false);
+  assert.equal(core.hasReviewRecord({...miss,decision_kind:'rule_feature_unretained',review_status:'rule_hit_unreviewed'}),true);
+  assert.equal(core.reviewStates.reviewed_no_ai,'已核查为无AI');
 });
 
 test('rule suspects share the review list without fabricated model receipts',()=>{
@@ -104,4 +115,32 @@ test('TA credentials authenticate feedback without changing the original rule sc
   assert.equal(calls[0].opts.headers.Authorization,'Bearer ta-secret');
   assert.equal(JSON.parse(calls[0].opts.body).reason,'已核对');
   assert.ok(calls[0].url.endsWith('/feedback'));
+});
+
+test('review cursor continues after all 30 current-page records leave the queue',()=>{
+  const rows=Array.from({length:65},(_,i)=>({submission_id:String(i+1)})),cursor=core.reviewCursor(rows.slice(0,30),0,65);
+  for(let i=1;i<=30;i++){
+    cursor.setVisible(String(i),false);
+    assert.equal(cursor.has(String(i),1),true);
+    assert.equal(cursor.neighbor(String(i),1),i<30?String(i+1):null);
+  }
+  const request=cursor.request(1);assert.deepEqual(request,{offset:0,limit:30});
+  cursor.extend({reviews:rows.slice(30,60),total:35},request,1);
+  assert.equal(cursor.neighbor('30',1),'31');assert.equal(cursor.has('31',-1),false);
+  assert.deepEqual(cursor.request(1),{offset:30,limit:30});
+});
+test('review cursor preserves preceding records and fetches next page without skipping after mixed verdicts',()=>{
+  const rows=Array.from({length:65},(_,i)=>({submission_id:String(i+1)})),cursor=core.reviewCursor(rows.slice(30,60),30,65);
+  cursor.setVisible('60',false);cursor.setVisible('60',false);
+  assert.equal(cursor.neighbor('60',-1),'59');assert.deepEqual(cursor.request(1),{offset:59,limit:30});
+  cursor.extend({reviews:rows.slice(60),total:64},cursor.request(1),1);
+  assert.equal(cursor.neighbor('60',1),'61');assert.equal(cursor.neighbor('61',-1),'59');assert.equal(cursor.has('65',1),false);
+  const prior=cursor.request(-1);assert.deepEqual(prior,{offset:0,limit:30});cursor.extend({reviews:rows.slice(0,30),total:64},prior,-1);
+  assert.equal(cursor.neighbor('31',-1),'30');assert.equal(cursor.has('1',-1),false);
+  cursor.setVisible('60',true);assert.equal(cursor.neighbor('61',-1),'60');
+});
+test('review cursor handles a sole removed record and filtered AI verdicts',()=>{
+  const cursor=core.reviewCursor([{submission_id:'1'}],0,1);cursor.setVisible('1',false);
+  assert.equal(cursor.has('1',1),false);assert.equal(cursor.has('1',-1),false);
+  cursor.setVisible('1',true);assert.equal(cursor.has('1',1),false);
 });

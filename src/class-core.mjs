@@ -101,5 +101,24 @@ export function createClassCore() {
       .sort((a,b) => Number(b.id) - Number(a.id))
       .map(submission => ({submission, member: byUser.get(String(submission.creator_id ?? submission.creator?.id))}));
   }
-  return {clean, roster, summarize, scoreMatrix, createScoreMatrix: scoreMatrix, submissions, sortMembers, problemSubmissions};
+  function problemReviewSubmissions(raw, members, problemId) {
+    if (!Array.isArray(raw)) throw new Error('提交记录格式不匹配。');
+    const byUser = new Map(members.filter(m => m.status === 'matched' && m.userId).map(m => [String(m.userId), m]));
+    const groups = new Map(), seen = new Set();
+    for (const submission of raw) {
+      const id=String(submission.id), uid=String(submission.creator_id ?? submission.creator?.id);
+      if(String(submission.problem_id)!==String(problemId)||!byUser.has(uid)||!(/^[1-9]\d*$/.test(id))||seen.has(id))continue;
+      seen.add(id);if(!groups.has(uid))groups.set(uid,[]);groups.get(uid).push(submission);
+    }
+    const chosen=[];
+    for(const [uid,attempts] of groups){
+      attempts.sort((a,b)=>Number(b.id)-Number(a.id));
+      const accepted=attempts.find(s=>s.result==='AC');
+      for(const submission of accepted?[accepted]:attempts.slice(0,2))
+        chosen.push({submission,member:byUser.get(uid)});
+    }
+    chosen.sort((a,b)=>Number(a.member.userId)-Number(b.member.userId)||Number(b.submission.id)-Number(a.submission.id));
+    return chosen;
+  }
+  return {clean, roster, summarize, scoreMatrix, createScoreMatrix: scoreMatrix, submissions, sortMembers, problemSubmissions, problemReviewSubmissions};
 }

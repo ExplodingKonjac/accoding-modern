@@ -56,7 +56,6 @@ test('problem AC selection uses matched class accounts and exact problem IDs, ke
   assert.deepEqual(core.problemSubmissions(raw,[],'99'),[]);
   assert.throws(()=>core.problemSubmissions({error:'denied'},students,'99'),/格式/);
 });
-
 test('score matrix follows roster and contest order and agrees with summary counts',()=>{
   const roster=[{studentId:'003',name:'丙'},{studentId:'001',name:'甲'},{studentId:'002',name:'乙'},{studentId:'004',name:'冲突'}];
   const problems=createContestCore().normalizeContest({id:1,start_time:'2026-09-01T00:00:00Z',end_time:'2026-09-01T02:00:00Z',
@@ -108,4 +107,25 @@ test('score matrix uses display labels and legacy rank keys independently beyond
   assert.deepEqual(matrix.headers.slice(30),['AA · 题26','AB · 题27']);
   assert.deepEqual(matrix.rows[0].slice(30),['AC','WA']);
   assert.deepEqual(matrix.rows[0].slice(2,4),[1,2]);
+});
+
+test('single problem review picks one AC or the latest two attempts per matched user',()=>{
+  const students=[{studentId:'001',status:'matched',userId:'1'},{studentId:'002',status:'matched',userId:'2'},{studentId:'003',status:'matched',userId:'3'},{studentId:'004',status:'ambiguous',userId:'4'}];
+  const raw=[
+    {id:1,creator_id:1,problem_id:99,result:'WA'},
+    {id:2,creator_id:1,problem_id:99,result:'AC'},
+    {id:3,creator_id:1,problem_id:99,result:'AC'},
+    {id:4,creator_id:1,problem_id:99,result:'WA'},
+    {id:5,creator_id:2,problem_id:99,result:'WA'},
+    {id:6,creator_id:2,problem_id:99,result:'CE'},
+    {id:7,creator_id:2,problem_id:99,result:'JG'},
+    {id:8,creator_id:3,problem_id:99,result:'WA'},
+    {id:9,creator_id:4,problem_id:99,result:'AC'},
+    {id:10,creator_id:1,problem_id:98,result:'AC'},
+    {id:7,creator_id:2,problem_id:99,result:'JG'}
+  ];
+  assert.deepEqual(core.problemReviewSubmissions(raw,students,'99').map(x=>x.submission.id),[3,7,6,8]);
+  assert.deepEqual(core.problemReviewSubmissions(raw,students,'98').map(x=>x.submission.id),[10]);
+  assert.deepEqual(core.problemReviewSubmissions(raw,students,'100'),[]);
+  assert.throws(()=>core.problemReviewSubmissions({},students,'99'),/格式/);
 });
