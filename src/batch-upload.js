@@ -1,7 +1,7 @@
 function mountBatchUpload(Core) {
   const container = document.getElementById('test_data');
   const total = document.getElementById('total_files');
-  if (!container || !total || typeof window.add_test_data !== 'function' || document.getElementById('am-batch-upload')) return;
+  if (!container || !total || typeof pageWindow.add_test_data !== 'function' || document.getElementById('am-batch-upload')) return;
   const make = (tag, text) => { const e=document.createElement(tag); if(text!==undefined)e.textContent=text; return e; };
   const panel = make('section'); panel.id='am-batch-upload';
   const heading=make('strong','批量添加测试点');
@@ -33,7 +33,7 @@ function mountBatchUpload(Core) {
     // Recheck names at commit time: users may have manually added rows since selecting files.
     const result=plan();
     if(result.errors.length){show();return;}
-    const start=Number(window.__number_of_test_data), oldCounter=window.__number_of_test_data, oldTotal=total.value;
+    const start=Number(pageWindow.__number_of_test_data), oldCounter=pageWindow.__number_of_test_data, oldTotal=total.value;
     const before=new Set(container.children);
     try {
       if(!Number.isInteger(start)||start<0) throw new Error('原站测试点计数不可用，请刷新后重试。');
@@ -42,7 +42,7 @@ function mountBatchUpload(Core) {
       entries.forEach((entry,index)=>{
         const n=start+index;
         if(document.getElementById('input_file_in'+n))throw new Error('原站测试点序号发生冲突。');
-        window.add_test_data();
+        pageWindow.add_test_data();
         ['in','out'].forEach((side,j)=>{
           const target=document.getElementById('input_file_'+side+n);
           if(!target || target.form!==total.form)throw new Error('原站测试点表单结构已变化。');
@@ -53,7 +53,7 @@ function mountBatchUpload(Core) {
       status.dataset.error='false';status.textContent=`已填入 ${entries.length} 组，权重默认为 1。尚未上传，请检查下方列表，再点击原站“保存”。`;
     } catch(error) {
       for(const child of [...container.children])if(!before.has(child))child.remove();
-      window.__number_of_test_data=oldCounter;total.value=oldTotal;total.setAttribute('value',oldTotal);
+      pageWindow.__number_of_test_data=oldCounter;total.value=oldTotal;total.setAttribute('value',oldTotal);
       status.dataset.error='true';status.textContent='填入失败，已撤销本次新增行。'+error.message;
     }
   }

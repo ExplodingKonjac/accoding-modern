@@ -67,6 +67,6 @@ test('legacy reader stays local even on pages with XLSX, CommonJS and AMD global
   assert.equal(context.exports.existing, true);
   assert.equal(context.module.exports.existing, true);
   assert.equal(context.XLSX, undefined);
-  const upstream = source.slice(source.indexOf('/*! xlsx.js'), source.lastIndexOf('\nreturn XLSX;')).replaceAll('\n+String(w)', '+String(w)');
+  const upstream = source.slice(source.indexOf('/*! xlsx.js'), source.lastIndexOf('\nreturn XLSX;')).replaceAll('\r', '').replaceAll('\n+String(w)', '+String(w)');
   assert.equal(createHash('sha256').update(upstream).digest('hex'), 'cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f41');
 });

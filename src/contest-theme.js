@@ -45,7 +45,7 @@
       return [...bodies].filter(body=>body.isConnected);
     };
     const queue=nodes=>{
-      const math=window.MathJax;
+      const math=pageWindow.MathJax;
       if(!math?.Hub?.Queue||!nodes.length)return;
       if(typesetting){pending=true;return;}
       typesetting=true;

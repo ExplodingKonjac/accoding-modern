@@ -37,15 +37,15 @@ function mountMarkdownEditor(Core) {
     }
   });
   function render() {
-    if (!window.markdown?.toHTML) return;
-    preview.innerHTML = window.markdown.toHTML(Core.toOJ(input.value), 'Maruku');
-    window.MathJax?.Hub?.Queue(['Typeset', window.MathJax.Hub, preview]);
+    if (!pageWindow.markdown?.toHTML) return;
+    preview.innerHTML = pageWindow.markdown.toHTML(Core.toOJ(input.value), 'Maruku');
+    pageWindow.MathJax?.Hub?.Queue(['Typeset', pageWindow.MathJax.Hub, preview]);
     updateSaved();
   }
   // Preserve the site's other editors and oninput handler; only this description uses conversion.
-  const original = window.Editor;
+  const original = pageWindow.Editor;
   if (typeof original === 'function') {
-    window.Editor = function(inputId, previewId) {
+    pageWindow.Editor = function(inputId, previewId) {
       if (inputId !== input.id || previewId !== preview.id) return original.apply(this, arguments);
       input.editor = { update: render };
       render();

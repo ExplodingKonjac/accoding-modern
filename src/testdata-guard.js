@@ -17,13 +17,13 @@ function mountTestdataGuard(Core) {
     status.textContent=result.errors.length?result.errors.join('\n'):result.warnings.length?result.warnings.join('\n')+'\n可保存其他字段；删除这些记录需要后端修复。检查无法判断文件内容是否已被覆盖或丢失。':'文件名检查通过。保存时将检查所有手动与批量选择的测试点。';
     if(result.errors.length&&reveal){
       const modal=panel.closest('.modal');
-      if(modal&&window.jQuery?.fn.modal){window.jQuery(modal).one('shown.bs.modal',()=>{panel.scrollIntoView({block:'center'});panel.focus({preventScroll:true});}).modal('show');}
+      if(modal&&pageWindow.jQuery?.fn.modal){pageWindow.jQuery(modal).one('shown.bs.modal',()=>{panel.scrollIntoView({block:'center'});panel.focus({preventScroll:true});}).modal('show');}
       else{panel.scrollIntoView({block:'center'});panel.focus({preventScroll:true});}
     }
     return !result.errors.length;
   }
-  const originalSave=window.submit_information;
-  if(typeof originalSave==='function')window.submit_information=function(){if(check())return originalSave.apply(this,arguments);return false;};
+  const originalSave=pageWindow.submit_information;
+  if(typeof originalSave==='function')pageWindow.submit_information=function(){if(check())return originalSave.apply(this,arguments);return false;};
   const originalOnsubmit=form.onsubmit;
   form.onsubmit=function(event){if(!check())return false;return originalOnsubmit?.call(this,event);};
   const originalSubmit=form.submit;
