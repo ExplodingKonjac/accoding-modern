@@ -4,7 +4,7 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   let generation=0,controller=null,timer=null,rows=[],page=0,total=0,active=false,detailVersion=0,detailController=null,runs=[],runId='',scope=null,listDirty=false,listPosition=null;
   let cursor=null,updateNavigation=()=>{},navigationBusy=false,saving=false;
   const getToken=()=>accessToken;
-  const client=core.featureClient(getToken,fetch,4),size=30;
+  const client=core.featureClient(getToken,typeof reviewFetch==='function'?reviewFetch:fetch,4),size=30;
   const el=(tag,text)=>{const n=document.createElement(tag);if(text!=null)n.textContent=String(text);return n;};
   const button=(text,fn)=>{const b=el('button',text);b.type='button';b.onclick=fn;return b;};
   const refill=(s,values,keep=s.value)=>{s.replaceChildren();for(const [value,text] of values){const o=el('option',text);o.value=value;s.append(o);}if([...s.options].some(o=>o.value===keep))s.value=keep;};

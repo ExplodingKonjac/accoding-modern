@@ -43,7 +43,7 @@
 1. 浏览器安装并启用 Tampermonkey（篡改猴）。
 2. [安装 / 更新脚本](https://raw.githubusercontent.com/y38501148-max/accoding-modern/main/accoding-modern.user.js)。
 3. 在脚本安装窗口检查名称和生效网址后确认。
-4. 打开或刷新 <https://accoding.buaa.edu.cn:4000/>。
+4. 打开或刷新 <https://accoding.buaa.edu.cn:4000/>；通过北航 VPN 时，先登录 <https://e1.buaa.edu.cn/>，再打开 <https://accoding-4000.e1.buaa.edu.cn/>。更新脚本时请接受对 `muzermat.online` 的跨域请求权限（仅用于云端代码核查；OJ 登录信息仍由原站管理）。
 
 目前仅匹配上述 HTTPS 管理站的 4000 端口。界面美化与班级统计无需独立服务器；可选的代码复核功能连接已部署的独立数据 API。
 
