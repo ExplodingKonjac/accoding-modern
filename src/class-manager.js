@@ -27,7 +27,11 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     </div><section id="problem-review-page" class="problem-review-page" hidden aria-label="本题提交核查"><div class="toolbar"><h2>本题提交核查名单</h2><button data-action="close-problem-review">返回班级页面</button></div><div id="problem-review-content" class="panel"></div></section><dialog id="confirm-dialog"><h2 id="dialog-title"></h2><p id="dialog-text"></p><input id="dialog-input" maxlength="80" hidden><div class="pager"><button data-action="dialog-cancel">取消</button><button class="primary" data-action="dialog-confirm">确认</button></div></dialog>
   </section>`;
   const $ = selector => root.querySelector(selector);
-  const key = 'accoding-modern.classes.v1';
+  const classStorage=createClassStorage(localStorage,{
+    get:typeof GM_getValue==='function'?GM_getValue:undefined,
+    set:typeof GM_setValue==='function'?GM_setValue:undefined
+  });
+  const key=classStorage.key;
   let classes = [], currentId = '', sheets = [], preview = null, contest = null, rank = null, summary = null;
   let activeStudent = null, submissionCache = null, memberPage = 0, submissionPage = 0, generation = 0;
   let rankController = null, subController = null, dialogAction = null, opener = null;
@@ -36,15 +40,16 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
   let upsolve = null, upsolveController = null, pageMode = 'contest', rankingPage = 0;
   const isUpsolve = () => pageMode === 'upsolve';
   let storageError = '';
-  try {const saved = JSON.parse(localStorage.getItem(key) || '{"version":1,"classes":[]}');
-    if (saved.version !== 1 || !Array.isArray(saved.classes) || saved.classes.some(c => !c.id || !c.name || !Array.isArray(c.members))) throw new Error('格式无效');
-    classes = saved.classes;
-  } catch (e) {storageError = '本地班级数据无法读取，已停止写入，避免覆盖原名册。请先备份浏览器数据。';}
+  try {classes=classStorage.load();}
+  catch (e) {
+    storageError='班级名册无法安全同步，已停止写入，避免覆盖原名册。'+e.message;
+    try {const local=JSON.parse(localStorage.getItem(key));if(local?.version===1&&Array.isArray(local.classes))classes=local.classes;}catch{}
+  }
   const selected = () => classes.find(c => c.id === currentId);
   function notice(text, error = false) {$('#message').textContent = text; $('#message').hidden = !text; $('#message').classList.toggle('error', error);}
   function persist(next) {
     if (storageError) throw new Error(storageError);
-    localStorage.setItem(key, JSON.stringify({version:1, classes:next})); classes = next;
+    classStorage.save(next); classes = next;
   }
   function el(tag, text, cls) {const n = document.createElement(tag); if (text != null) n.textContent = String(text); if (cls) n.className = cls; return n;}
   function option(value, text) {const n = el('option', text); n.value = value; return n;}
@@ -407,4 +412,7 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     if(event.key==='Tab'&&!$('.overlay').hidden&&!$('#confirm-dialog').open){const controls=[...$('.overlay').querySelectorAll('button,input,select,a[href]')].filter(e=>!e.disabled&&e.getClientRects().length);const first=controls[0],last=controls.at(-1);if(event.shiftKey&&root.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&root.activeElement===last){event.preventDefault();first?.focus();}}
   });
   window.addEventListener('storage',event=>{if(event.key===key){notice('其他页面修改了班级名册，请刷新页面后继续，避免覆盖。',true);storageError='请刷新页面，载入其他页面更新后的班级名册。';}});
+  if(typeof GM_addValueChangeListener==='function')GM_addValueChangeListener(key,(_key,_old,_new,remote)=>{
+    if(remote){storageError='其他页面修改了班级名册，请刷新页面后继续，避免覆盖。';notice(storageError,true);}
+  });
 }
