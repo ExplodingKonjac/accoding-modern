@@ -1,5 +1,5 @@
 function mountContestBoard(Core) {
-  if (!/^\/contest(?:-ng)?\//.test(location.pathname) || document.getElementById('am-contest-tools')) return;
+  if (!/^\/contest(?:-ng)?\//.test(ACCODING_APP_PATHNAME) || document.getElementById('am-contest-tools')) return;
   const host=document.createElement('div'); host.id='am-contest-tools';
   const root=host.attachShadow({mode:'open'});
   const make=(tag,cls,text)=>{const e=document.createElement(tag);e.className=cls;if(text!==undefined)e.textContent=text;return e;};
@@ -25,7 +25,7 @@ function mountContestBoard(Core) {
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 `;
   root.append(style);
-  const currentId=()=> location.pathname.match(/^\/contest\/(\d+)(?:\/|$)/)?.[1] || (/^\/contest-ng\//.test(location.pathname) ? location.hash.match(/^#\/(\d+)(?:\/|$)/)?.[1] : null);
+  const currentId=()=> ACCODING_APP_PATHNAME.match(/^\/contest\/(\d+)(?:\/|$)/)?.[1] || (/^\/contest-ng\//.test(ACCODING_APP_PATHNAME) ? location.hash.match(/^#\/(\d+)(?:\/|$)/)?.[1] : null);
   const launch=btn('▥ 赛事统计看板',()=>{const id=currentId();if(id)open(id);});launch.className='launch';
   const overlay=make('section','overlay');overlay.hidden=true;overlay.tabIndex=-1;overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label','赛事统计看板');
   const head=make('div','head'),titleArea=make('div','title-area');

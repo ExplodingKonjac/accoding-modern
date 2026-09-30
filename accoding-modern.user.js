@@ -5,6 +5,9 @@
 // @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @include      https://accoding-4000.e1.buaa.edu.cn/*
+// @include      https://accoding-4000.e2.buaa.edu.cn/*
+// @include      https://accoding-4000.e3.buaa.edu.cn/*
+// @include      https://d.buaa.edu.cn/https-4000/77726476706e69737468656265737421f1f4429323396657300a9cad991b26317219996f/*
 // @run-at       document-end
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
@@ -21,7 +24,46 @@
 (() => {
 'use strict';
 const ACCODING_MODERN_VERSION="1.19.3";
-if (!['https://accoding.buaa.edu.cn:4000','https://accoding-4000.e1.buaa.edu.cn'].includes(location.origin)) return;
+// Runtime URL compatibility for the direct site and BUAA VPN reverse proxy.
+// The VPN keeps the upstream app under /https-4000/<opaque-token>/, so absolute
+// root requests and pathname checks must be evaluated relative to that prefix.
+const ACCODING_DIRECT_ORIGINS = new Set(['https://accoding.buaa.edu.cn:4000','https://accoding-4000.e1.buaa.edu.cn','https://accoding-4000.e2.buaa.edu.cn','https://accoding-4000.e3.buaa.edu.cn']);
+const ACCODING_VPN_ORIGIN = 'https://d.buaa.edu.cn';
+const ACCODING_VPN_PREFIX = location.origin === ACCODING_VPN_ORIGIN
+  ? (location.pathname.match(/^\/https-4000\/[^/]+(?=\/|$)/)?.[0] || '') : '';
+const ACCODING_MODERN_IS_APP = ACCODING_DIRECT_ORIGINS.has(location.origin) || Boolean(ACCODING_VPN_PREFIX);
+const ACCODING_APP_PATHNAME = ACCODING_VPN_PREFIX
+  ? (location.pathname.slice(ACCODING_VPN_PREFIX.length) || '/') : location.pathname;
+const accodingPath = path => {
+  const value = String(path || '');
+  if (!ACCODING_VPN_PREFIX || !value.startsWith('/') || value.startsWith(ACCODING_VPN_PREFIX + '/')) return value;
+  return ACCODING_VPN_PREFIX + value;
+};
+const accodingPagePath = value => {
+  const pathname = value instanceof URL ? value.pathname : String(value || '');
+  return ACCODING_VPN_PREFIX && pathname.startsWith(ACCODING_VPN_PREFIX)
+    ? (pathname.slice(ACCODING_VPN_PREFIX.length) || '/') : pathname;
+};
+
+// Existing modules intentionally use same-origin absolute fetch paths. Rebase
+// those requests while on the VPN; credentials and relative requests are kept
+// unchanged. This also covers modules added later without duplicating prefix logic.
+if (ACCODING_VPN_PREFIX) {
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    if (typeof input === 'string') input = accodingPath(input);
+    else if (input instanceof Request && new URL(input.url).origin === location.origin) {
+      const url = new URL(input.url);
+      if (!url.pathname.startsWith(ACCODING_VPN_PREFIX + '/')) {
+        url.pathname = accodingPath(url.pathname);
+        input = new Request(url, input);
+      }
+    }
+    return nativeFetch(input, init);
+  };
+}
+
+if (!ACCODING_MODERN_IS_APP) return;
 const pageWindow=typeof unsafeWindow==='undefined'?window:unsafeWindow;
 function reviewFetch(url,options={}) {
   if (location.origin!=='https://accoding-4000.e1.buaa.edu.cn' ||
@@ -169,7 +211,7 @@ function createContestCore() {
 }
 
 function mountContestBoard(Core) {
-  if (!/^\/contest(?:-ng)?\//.test(location.pathname) || document.getElementById('am-contest-tools')) return;
+  if (!/^\/contest(?:-ng)?\//.test(ACCODING_APP_PATHNAME) || document.getElementById('am-contest-tools')) return;
   const host=document.createElement('div'); host.id='am-contest-tools';
   const root=host.attachShadow({mode:'open'});
   const make=(tag,cls,text)=>{const e=document.createElement(tag);e.className=cls;if(text!==undefined)e.textContent=text;return e;};
@@ -195,7 +237,7 @@ function mountContestBoard(Core) {
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 `;
   root.append(style);
-  const currentId=()=> location.pathname.match(/^\/contest\/(\d+)(?:\/|$)/)?.[1] || (/^\/contest-ng\//.test(location.pathname) ? location.hash.match(/^#\/(\d+)(?:\/|$)/)?.[1] : null);
+  const currentId=()=> ACCODING_APP_PATHNAME.match(/^\/contest\/(\d+)(?:\/|$)/)?.[1] || (/^\/contest-ng\//.test(ACCODING_APP_PATHNAME) ? location.hash.match(/^#\/(\d+)(?:\/|$)/)?.[1] : null);
   const launch=btn('▥ 赛事统计看板',()=>{const id=currentId();if(id)open(id);});launch.className='launch';
   const overlay=make('section','overlay');overlay.hidden=true;overlay.tabIndex=-1;overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label','赛事统计看板');
   const head=make('div','head'),titleArea=make('div','title-area');
@@ -383,7 +425,7 @@ mountContestBoard(createContestCore());
 // The contest Angular app replaces its ng-view on hash navigation and has no #page/#navbar.
 // Scope styles to its stable template selectors so late ng-include and route changes work.
 (() => {
-  if (!/^\/contest-ng\//.test(location.pathname) || document.getElementById('am-ng-style')) return;
+  if (!/^\/contest-ng\//.test(ACCODING_APP_PATHNAME) || document.getElementById('am-ng-style')) return;
   // Angular's contest poller replaces Contest.data periodically. The `marked` filter then
   // writes the markdown HTML back into `.markdown-body`, which removes MathJax's generated
   // nodes. The original controller only queues MathJax when the user clicks a problem, so a
@@ -593,7 +635,7 @@ function createListPageLoader({initialUrl, urls, readPage, onPage, onProgress = 
 
 function mountListFilter({page, table, wrap, toolbar, input, info, empty, dataRows}) {
   const baseUrl = location.href;
-  const kind = location.pathname.split('/')[1];
+  const kind = ACCODING_APP_PATHNAME.split('/')[1];
   const form = table.closest('form');
   // The native submission search uses a read-only POST with these four fields.
   const body = kind === 'submission' && form ? new URLSearchParams(new FormData(form)) : null;
@@ -642,7 +684,7 @@ function mountListFilter({page, table, wrap, toolbar, input, info, empty, dataRo
         const response = await fetch(url, {credentials: 'same-origin', signal: request.signal,
           ...(body ? {method: 'POST', body} : {})});
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        if (new URL(response.url).pathname !== new URL(url).pathname) throw new Error('登录状态已失效或无权读取，请刷新页面');
+        if ((typeof accodingPagePath==='function'?accodingPagePath(new URL(response.url)):new URL(response.url).pathname) !== (typeof accodingPagePath==='function'?accodingPagePath(new URL(url)):new URL(url).pathname)) throw new Error('登录状态已失效或无权读取，请刷新页面');
         const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
         const remote = [...doc.querySelectorAll('#page table.table')].filter(t => !t.closest('.modal'))[tableIndex];
         const rows = remote && [...remote.rows].filter(row => row.cells.length);
@@ -732,7 +774,7 @@ function mountListFilter({page, table, wrap, toolbar, input, info, empty, dataRo
 
 (() => {
   'use strict';
-  if (!['https://accoding.buaa.edu.cn:4000','https://accoding-4000.e1.buaa.edu.cn'].includes(location.origin) || document.getElementById('am-style')) return;
+  if (!ACCODING_MODERN_IS_APP || document.getElementById('am-style')) return;
   const page = document.querySelector('#page');
   const navbar = document.querySelector('#navbar');
   if (!page || !navbar) return;
@@ -868,7 +910,7 @@ html.am body {background:var(--am-bg)!important;color:var(--am-ink);font-family:
   page.before(topbar);
 
   // Enhance list pages while retaining the native current-page rows and controls.
-  const isList = /^\/(problem|contest|group|submission)\/index\/?$/.test(location.pathname);
+  const isList = /^\/(problem|contest|group|submission)\/index\/?$/.test(ACCODING_APP_PATHNAME);
   if (isList) for (const table of page.querySelectorAll('table.table')) {
     if (table.closest('.modal')) continue;
     table.classList.add('am-list-table');
@@ -910,7 +952,7 @@ html.am body {background:var(--am-bg)!important;color:var(--am-ink);font-family:
       page.classList.add('am-problem-layout');
     }
   }
-  if (location.pathname === '/') {
+  if (ACCODING_APP_PATHNAME === '/') {
     const dashboard = el('section', 'am-home');
     for (const [path, title, description] of [
       ['/problem/index', '题目管理', '查看题面、编辑内容、管理测试数据'],
@@ -919,7 +961,7 @@ html.am body {background:var(--am-bg)!important;color:var(--am-ink);font-family:
       ['/group/index', '教学小组', '进入小组，管理课程与成员']
     ]) {
       const link = el('a', '');
-      link.href = path;
+      link.href = accodingPath(path);
       link.append(el('strong', '', title + ' ↗'), el('span', '', description));
       dashboard.append(link);
     }
@@ -1184,12 +1226,12 @@ function mountBackNavigation() {
   style.textContent=`#am-back-nav{grid-column:1/-1;width:100%;clear:both;margin:0 0 18px;line-height:1.5}#am-back-nav a{display:inline-flex;align-items:center;gap:8px;padding:8px 13px;border:1px solid #d4dfec;border-radius:8px;background:#fff;color:#315d9b;font:500 14px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;text-decoration:none}#am-back-nav a:hover{background:#edf4ff;border-color:#adc7ea}#am-back-nav a:focus-visible{outline:2px solid #377ce2;outline-offset:3px}.am #page.am-problem-layout:has(>#am-back-nav){grid-template-rows:auto 1fr}@media print{#am-back-nav{display:none}}`;
   document.head.append(style);
   function parent() {
-    if (location.pathname.startsWith('/contest-ng/')) {
+    if (ACCODING_APP_PATHNAME.startsWith('/contest-ng/')) {
       const parts=location.hash.replace(/^#\//,'').split('/').filter(Boolean);
       if (!/^\d+$/.test(parts[0]||'')) return null;
-      return parts.length>1 ? {href:location.pathname+'#/'+parts.slice(0,-1).join('/'),title:'返回比赛上级页面'} : {href:'/contest/index',title:'返回赛事列表'};
+      return parts.length>1 ? {href:accodingPath(ACCODING_APP_PATHNAME)+'#/'+parts.slice(0,-1).join('/'),title:'返回比赛上级页面'} : {href:accodingPath('/contest/index'),title:'返回赛事列表'};
     }
-    const match=location.pathname.match(/^\/(problem|contest|group|submission|user)\/(.*)$/);
+    const match=ACCODING_APP_PATHNAME.match(/^\/(problem|contest|group|submission|user)\/(.*)$/);
     if (!match) return null;
     const [,kind,rest]=match, parts=rest.split('/').filter(Boolean);
     const names={problem:'题目',contest:'赛事',group:'小组',submission:'评测记录',user:'个人信息'};
@@ -1813,7 +1855,7 @@ async function reviewProfileName(userId){
   if(reviewProfilePending.has(userId))return reviewProfilePending.get(userId);
   const pending=(async()=>{try{
     const path=`/user/${userId}/index`,response=await fetch(path,{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)});
-    if(!response.ok||!response.url||new URL(response.url).pathname!==path)return '';
+    if(!response.ok||!response.url||(typeof accodingPagePath==='function'?accodingPagePath(new URL(response.url)):new URL(response.url).pathname)!==path)return '';
     const doc=new DOMParser().parseFromString(await response.text(),'text/html');
     const headings=[...doc.querySelectorAll('h3')];if(headings.length!==1)return '';
     // OJ profile headings contain an optional rating title followed by the name.
@@ -2039,7 +2081,7 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
         ['提交','题目','结果','得分','语言','提交时间','代码'].forEach(t=>titles.append(el('th',t)));head.append(titles);table.append(head);const body=el('tbody');
         for(const s of filtered.slice(currentPage*30,currentPage*30+30)){const row=el('tr'),problem=ctx.contest.problems.find(p=>String(p.id)===String(s.problem_id));if(String(s.id)===String(r.submission_id))row.className='ar-current-submission';
           [String(s.id)===String(r.submission_id)?`${s.id}（当前核查）`:s.id,problem?`${problem.label} · ${problem.title}`:s.problem_id,s.result||'待评测',s.score??'—',s.lang||'—',new Date(s.created_at).toLocaleString()].forEach(t=>row.append(el('td',t)));
-          const cell=el('td');if(/^[1-9]\d*$/.test(String(s.id))){const link=el('a','查看代码');link.href=`/submission/${s.id}`;link.target='_blank';link.rel='noopener noreferrer';cell.append(link);}row.append(cell);body.append(row);
+          const cell=el('td');if(/^[1-9]\d*$/.test(String(s.id))){const link=el('a','查看代码');link.href=accodingPath(`/submission/${s.id}`);link.target='_blank';link.rel='noopener noreferrer';cell.append(link);}row.append(cell);body.append(row);
         }
         table.append(body);list.replaceChildren(table);const previous=button('上一页',()=>{currentPage--;drawSubmissions();}),next=button('下一页',()=>{currentPage++;drawSubmissions();});previous.disabled=currentPage===0;next.disabled=(currentPage+1)*30>=filtered.length;pager.replaceChildren(el('span',`共 ${filtered.length} 条 · ${currentPage+1} / ${Math.max(1,Math.ceil(filtered.length/30))}`),previous,next);
       }
@@ -2319,17 +2361,17 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
       const doc=new DOMParser().parseFromString(await res.text(),'text/html'), seen=new Set();
       const items=[option('','选择可见比赛')];
       for(const a of doc.querySelectorAll('a[href]')){
-        const url=new URL(a.getAttribute('href'),location.origin), id=url.pathname==='/contest-ng/index.html'?url.hash.match(/^#\/(\d+)/)?.[1]:url.pathname.match(/^\/contest\/(\d+)$/)?.[1];
+        const url=new URL(a.getAttribute('href'),location.origin), id=accodingPagePath(url)==='/contest-ng/index.html'?url.hash.match(/^#\/(\d+)/)?.[1]:accodingPagePath(url).match(/^\/contest\/(\d+)$/)?.[1];
         if(!id||seen.has(id))continue;seen.add(id);items.push(option(id,a.textContent.trim()));
       }
       $('#contest-select').replaceChildren(...items);
-      const current=location.hash.match(/^#\/(\d+)/)?.[1]||location.pathname.match(/^\/contest\/(\d+)/)?.[1];
+      const current=location.hash.match(/^#\/(\d+)/)?.[1]||ACCODING_APP_PATHNAME.match(/^\/contest\/(\d+)/)?.[1];
       if(current){if(!seen.has(current))$('#contest-select').append(option(current,`当前比赛 ${current}`));$('#contest-select').value=current;}
     }catch(e){notice('比赛列表暂时无法读取，可手动输入比赛 ID。',true);}
   }
   function codeLink(id) {
     if(!/^[1-9]\d*$/.test(String(id)))return el('span','—');
-    const a=el('a','查看代码');a.href=`/submission/${id}`;a.target='_blank';a.rel='noopener noreferrer';a.setAttribute('aria-label',`查看提交 ${id} 的代码`);return a;
+    const a=el('a','查看代码');a.href=accodingPath(`/submission/${id}`);a.target='_blank';a.rel='noopener noreferrer';a.setAttribute('aria-label',`查看提交 ${id} 的代码`);return a;
   }
   function contestSubmissions() {
     return (submissionCache||[]).filter(s=>contestCore.time(s.created_at)>=contest.start&&contestCore.time(s.created_at)<contest.end);
@@ -2465,7 +2507,7 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     $('#submissions').replaceChildren(table(['提交 ID','题目','结果','得分','语言','提交时间','代码','复核'],rows.slice(submissionPage*30,submissionPage*30+30).map(s=>{
       const p=contest.problems.find(p=>p.id===String(s.problem_id));
       const code=/^[1-9]\d*$/.test(String(s.id)) ? el('a','查看代码') : el('span','—');
-      if(code.tagName==='A'){code.href=`/submission/${s.id}`;code.target='_blank';code.rel='noopener noreferrer';code.setAttribute('aria-label',`查看提交 ${s.id} 的代码`);}
+      if(code.tagName==='A'){code.href=accodingPath(`/submission/${s.id}`);code.target='_blank';code.rel='noopener noreferrer';code.setAttribute('aria-label',`查看提交 ${s.id} 的代码`);}
       return [s.id,p?`${p.label} · ${p.title}`:String(s.problem_id),el('span',s.result||'待评测',s.result==='AC'?'ac':pending(s)?'pending':'bad'),s.score??'—',s.lang,new Date(s.created_at).toLocaleString(),code,button('查看复核',async()=>{await switchPane('review');await reviewPanel.openDetail(String(s.id));})];
     })));
     pager($('#submission-pager'),rows.length,submissionPage,page=>{submissionPage=page;drawSubmissions();});
@@ -2606,7 +2648,7 @@ function createUpsolveReader(time) {
     const nextNode=[...doc.querySelectorAll('[onclick]')].find(e=>e.textContent.trim()==='下一页');
     let next=null;
     if(nextNode){const match=nextNode.getAttribute('onclick').match(/change_page\(["']([^"']+)["']\)/);if(!match)throw new Error('无法识别提交分页。');
-      const url=new URL(match[1],location.origin+'/submission/index');const n=Number(url.searchParams.get('offset'));
+      const url=new URL(match[1],location.origin+accodingPath('/submission/index'));const n=Number(url.searchParams.get('offset'));
       if(url.origin!==location.origin||url.pathname!=='/submission/index'||!Number.isInteger(n)||n<=offset)throw new Error('提交分页异常。');next=n;}
     return {rows,next};
   }
@@ -2712,7 +2754,7 @@ function mountSubmissionReview(reviewCore) {
   const core=createSubmissionCore(),reader=createUpsolveReader(createContestCore().time);
   let current='',dispose=()=>{};
   function sync() {
-    const id=location.pathname.match(/^\/submission\/(\d+)\/?$/)?.[1]||'';
+    const id=ACCODING_APP_PATHNAME.match(/^\/submission\/(\d+)\/?$/)?.[1]||'';
     if(id===current)return;
     const original=document.querySelector('body > pre');
     if(id&&!original?.querySelector('code'))return;
@@ -2723,7 +2765,7 @@ function mountSubmissionReview(reviewCore) {
     const root=host.attachShadow({mode:'open'});
     const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n;};
     const button=(text,fn)=>{const b=el('button',text);b.type='button';b.onclick=fn;return b;};
-    const link=(text,href)=>{const a=el('a',text);a.href=href;return a;};
+    const link=(text,href)=>{const a=el('a',text);a.href=accodingPath(href);return a;};
     const style=el('style');style.textContent=`
       :host{display:block;background:#f3f6fb;color:#24324a;min-height:100vh;font:15px/1.65 system-ui,-apple-system,sans-serif}
       *{box-sizing:border-box}[hidden]{display:none!important}button,select,textarea{font:inherit;color:inherit}

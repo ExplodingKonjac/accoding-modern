@@ -2,7 +2,7 @@ function mountSubmissionReview(reviewCore) {
   const core=createSubmissionCore(),reader=createUpsolveReader(createContestCore().time);
   let current='',dispose=()=>{};
   function sync() {
-    const id=location.pathname.match(/^\/submission\/(\d+)\/?$/)?.[1]||'';
+    const id=ACCODING_APP_PATHNAME.match(/^\/submission\/(\d+)\/?$/)?.[1]||'';
     if(id===current)return;
     const original=document.querySelector('body > pre');
     if(id&&!original?.querySelector('code'))return;
@@ -13,7 +13,7 @@ function mountSubmissionReview(reviewCore) {
     const root=host.attachShadow({mode:'open'});
     const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n;};
     const button=(text,fn)=>{const b=el('button',text);b.type='button';b.onclick=fn;return b;};
-    const link=(text,href)=>{const a=el('a',text);a.href=href;return a;};
+    const link=(text,href)=>{const a=el('a',text);a.href=accodingPath(href);return a;};
     const style=el('style');style.textContent=`
       :host{display:block;background:#f3f6fb;color:#24324a;min-height:100vh;font:15px/1.65 system-ui,-apple-system,sans-serif}
       *{box-sizing:border-box}[hidden]{display:none!important}button,select,textarea{font:inherit;color:inherit}

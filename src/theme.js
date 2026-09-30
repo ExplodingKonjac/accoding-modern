@@ -11,7 +11,7 @@
 
 (() => {
   'use strict';
-  if (!['https://accoding.buaa.edu.cn:4000','https://accoding-4000.e1.buaa.edu.cn'].includes(location.origin) || document.getElementById('am-style')) return;
+  if (!ACCODING_MODERN_IS_APP || document.getElementById('am-style')) return;
   const page = document.querySelector('#page');
   const navbar = document.querySelector('#navbar');
   if (!page || !navbar) return;
@@ -147,7 +147,7 @@ html.am body {background:var(--am-bg)!important;color:var(--am-ink);font-family:
   page.before(topbar);
 
   // Enhance list pages while retaining the native current-page rows and controls.
-  const isList = /^\/(problem|contest|group|submission)\/index\/?$/.test(location.pathname);
+  const isList = /^\/(problem|contest|group|submission)\/index\/?$/.test(ACCODING_APP_PATHNAME);
   if (isList) for (const table of page.querySelectorAll('table.table')) {
     if (table.closest('.modal')) continue;
     table.classList.add('am-list-table');
@@ -189,7 +189,7 @@ html.am body {background:var(--am-bg)!important;color:var(--am-ink);font-family:
       page.classList.add('am-problem-layout');
     }
   }
-  if (location.pathname === '/') {
+  if (ACCODING_APP_PATHNAME === '/') {
     const dashboard = el('section', 'am-home');
     for (const [path, title, description] of [
       ['/problem/index', '题目管理', '查看题面、编辑内容、管理测试数据'],
@@ -198,7 +198,7 @@ html.am body {background:var(--am-bg)!important;color:var(--am-ink);font-family:
       ['/group/index', '教学小组', '进入小组，管理课程与成员']
     ]) {
       const link = el('a', '');
-      link.href = path;
+      link.href = accodingPath(path);
       link.append(el('strong', '', title + ' ↗'), el('span', '', description));
       dashboard.append(link);
     }

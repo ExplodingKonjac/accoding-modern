@@ -1,6 +1,6 @@
 function mountListFilter({page, table, wrap, toolbar, input, info, empty, dataRows}) {
   const baseUrl = location.href;
-  const kind = location.pathname.split('/')[1];
+  const kind = ACCODING_APP_PATHNAME.split('/')[1];
   const form = table.closest('form');
   // The native submission search uses a read-only POST with these four fields.
   const body = kind === 'submission' && form ? new URLSearchParams(new FormData(form)) : null;
@@ -49,7 +49,7 @@ function mountListFilter({page, table, wrap, toolbar, input, info, empty, dataRo
         const response = await fetch(url, {credentials: 'same-origin', signal: request.signal,
           ...(body ? {method: 'POST', body} : {})});
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        if (new URL(response.url).pathname !== new URL(url).pathname) throw new Error('登录状态已失效或无权读取，请刷新页面');
+        if ((typeof accodingPagePath==='function'?accodingPagePath(new URL(response.url)):new URL(response.url).pathname) !== (typeof accodingPagePath==='function'?accodingPagePath(new URL(url)):new URL(url).pathname)) throw new Error('登录状态已失效或无权读取，请刷新页面');
         const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
         const remote = [...doc.querySelectorAll('#page table.table')].filter(t => !t.closest('.modal'))[tableIndex];
         const rows = remote && [...remote.rows].filter(row => row.cells.length);

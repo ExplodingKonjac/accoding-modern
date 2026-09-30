@@ -1,7 +1,7 @@
 // The contest Angular app replaces its ng-view on hash navigation and has no #page/#navbar.
 // Scope styles to its stable template selectors so late ng-include and route changes work.
 (() => {
-  if (!/^\/contest-ng\//.test(location.pathname) || document.getElementById('am-ng-style')) return;
+  if (!/^\/contest-ng\//.test(ACCODING_APP_PATHNAME) || document.getElementById('am-ng-style')) return;
   // Angular's contest poller replaces Contest.data periodically. The `marked` filter then
   // writes the markdown HTML back into `.markdown-body`, which removes MathJax's generated
   // nodes. The original controller only queues MathJax when the user clicks a problem, so a

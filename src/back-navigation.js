@@ -4,12 +4,12 @@ function mountBackNavigation() {
   style.textContent=`#am-back-nav{grid-column:1/-1;width:100%;clear:both;margin:0 0 18px;line-height:1.5}#am-back-nav a{display:inline-flex;align-items:center;gap:8px;padding:8px 13px;border:1px solid #d4dfec;border-radius:8px;background:#fff;color:#315d9b;font:500 14px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;text-decoration:none}#am-back-nav a:hover{background:#edf4ff;border-color:#adc7ea}#am-back-nav a:focus-visible{outline:2px solid #377ce2;outline-offset:3px}.am #page.am-problem-layout:has(>#am-back-nav){grid-template-rows:auto 1fr}@media print{#am-back-nav{display:none}}`;
   document.head.append(style);
   function parent() {
-    if (location.pathname.startsWith('/contest-ng/')) {
+    if (ACCODING_APP_PATHNAME.startsWith('/contest-ng/')) {
       const parts=location.hash.replace(/^#\//,'').split('/').filter(Boolean);
       if (!/^\d+$/.test(parts[0]||'')) return null;
-      return parts.length>1 ? {href:location.pathname+'#/'+parts.slice(0,-1).join('/'),title:'返回比赛上级页面'} : {href:'/contest/index',title:'返回赛事列表'};
+      return parts.length>1 ? {href:accodingPath(ACCODING_APP_PATHNAME)+'#/'+parts.slice(0,-1).join('/'),title:'返回比赛上级页面'} : {href:accodingPath('/contest/index'),title:'返回赛事列表'};
     }
-    const match=location.pathname.match(/^\/(problem|contest|group|submission|user)\/(.*)$/);
+    const match=ACCODING_APP_PATHNAME.match(/^\/(problem|contest|group|submission|user)\/(.*)$/);
     if (!match) return null;
     const [,kind,rest]=match, parts=rest.split('/').filter(Boolean);
     const names={problem:'题目',contest:'赛事',group:'小组',submission:'评测记录',user:'个人信息'};

@@ -16,7 +16,7 @@ async function reviewProfileName(userId){
   if(reviewProfilePending.has(userId))return reviewProfilePending.get(userId);
   const pending=(async()=>{try{
     const path=`/user/${userId}/index`,response=await fetch(path,{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)});
-    if(!response.ok||!response.url||new URL(response.url).pathname!==path)return '';
+    if(!response.ok||!response.url||(typeof accodingPagePath==='function'?accodingPagePath(new URL(response.url)):new URL(response.url).pathname)!==path)return '';
     const doc=new DOMParser().parseFromString(await response.text(),'text/html');
     const headings=[...doc.querySelectorAll('h3')];if(headings.length!==1)return '';
     // OJ profile headings contain an optional rating title followed by the name.
