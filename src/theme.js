@@ -4,6 +4,7 @@
 // @version      1.0.2
 // @description  本地重排导航、表格和表单，保留原站登录及所有操作逻辑。
 // @include      https://accoding.buaa.edu.cn:4000/*
+// @include      https://accoding-4000.e1.buaa.edu.cn/*
 // @run-at       document-end
 // @grant        none
 // ==/UserScript==

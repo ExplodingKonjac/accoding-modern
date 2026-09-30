@@ -144,3 +144,21 @@ test('review cursor handles a sole removed record and filtered AI verdicts',()=>
   assert.equal(cursor.has('1',1),false);assert.equal(cursor.has('1',-1),false);
   cursor.setVisible('1',true);assert.equal(cursor.has('1',1),false);
 });
+
+test('quick-pass candidates work in v4 search and details without weakening scope or hash validation',async()=>{
+  const record={...featurePositive,decision_kind:'rule_feature_candidate',rule_version:'api-candidates-v14-quick-pass-20260929',call_id:null,review_status:'rule_hit_unreviewed',
+    result:{ai_suspected:true,label:['快速过题'],reason:'快速过题：F 题距上一道 H 题首次通过 180 秒，阈值 ≤ 5 分钟。'}};
+  const query={run_id:record.run_id,contest_id:record.contest_id,creator_ids:[record.creator_id],limit:30};
+  const client=value=>core.featureClient(()=>'',async url=>({ok:true,json:async()=>url.endsWith('/search')?{run_id:query.run_id,total:1,reviews:[value]}:value}),4);
+  assert.equal(core.hasReviewRecord(record),true);
+  assert.equal((await client(record).search(query)).reviews[0].result.label[0],'快速过题');
+  assert.deepEqual(await client(record).detail(record.submission_id,record.run_id),record);
+  for(const change of [{creator_id:'22'},{contest_id:1310},{run_id:'other-run'}]){
+    await assert.rejects(()=>client({...record,...change}).search(query),/当前运行或班级不一致/);
+  }
+  await assert.rejects(()=>client({...record,code:'changed'}).detail(record.submission_id,record.run_id),/哈希/);
+  const unknown={...record,result:{...record.result,label:['未来未知规则']}};
+  assert.equal(core.hasReviewRecord(unknown),false);
+  await assert.rejects(()=>client(unknown).search(query),/不支持的规则或格式.*更新插件/);
+  await assert.rejects(()=>client(unknown).detail(record.submission_id,record.run_id),/不支持的规则或格式.*更新插件/);
+});

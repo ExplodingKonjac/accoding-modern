@@ -16,7 +16,7 @@ async function reviewProfileName(userId){
   if(reviewProfilePending.has(userId))return reviewProfilePending.get(userId);
   const pending=(async()=>{try{
     const path=`/user/${userId}/index`,response=await fetch(path,{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)});
-    if(!response.ok||!response.url||accodingPagePath(new URL(response.url))!==path)return '';
+    if(!response.ok||!response.url||(typeof accodingPagePath==='function'?accodingPagePath(new URL(response.url)):new URL(response.url).pathname)!==path)return '';
     const doc=new DOMParser().parseFromString(await response.text(),'text/html');
     const headings=[...doc.querySelectorAll('h3')];if(headings.length!==1)return '';
     // OJ profile headings contain an optional rating title followed by the name.
@@ -46,7 +46,7 @@ async function ensureReviewAccess(contestId,core){
   if(reviewAccessPending.has(key))return reviewAccessPending.get(key);
   const pending=(async()=>{
     const api='https://muzermat.online:8443/oj-review-api/v4';
-    const post=async(path,body)=>{const r=await fetch(api+path,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'omit',cache:'no-store',body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});const value=await r.json();if(!r.ok)throw new Error(value.detail||'OJ 权限验证失败，请刷新重试。');return value;};
+    const post=async(path,body)=>{const r=await (typeof reviewFetch==='function'?reviewFetch:fetch)(api+path,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'omit',cache:'no-store',body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});const value=await r.json();if(!r.ok)throw new Error(value.detail||'OJ 权限验证失败，请刷新重试。');return value;};
     const hash=async value=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(v=>v.toString(16).padStart(2,'0')).join('');
     const displayName=account.name||await reviewProfileName(userId);
     if(!displayName)throw new Error('未能读取当前助教姓名，请刷新 OJ 后重试。');

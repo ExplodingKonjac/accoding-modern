@@ -1,11 +1,11 @@
 // Runtime URL compatibility for the direct site and BUAA VPN reverse proxy.
 // The VPN keeps the upstream app under /https-4000/<opaque-token>/, so absolute
 // root requests and pathname checks must be evaluated relative to that prefix.
-const ACCODING_DIRECT_ORIGIN = 'https://accoding.buaa.edu.cn:4000';
+const ACCODING_DIRECT_ORIGINS = new Set(['https://accoding.buaa.edu.cn:4000','https://accoding-4000.e1.buaa.edu.cn','https://accoding-4000.e2.buaa.edu.cn','https://accoding-4000.e3.buaa.edu.cn']);
 const ACCODING_VPN_ORIGIN = 'https://d.buaa.edu.cn';
 const ACCODING_VPN_PREFIX = location.origin === ACCODING_VPN_ORIGIN
   ? (location.pathname.match(/^\/https-4000\/[^/]+(?=\/|$)/)?.[0] || '') : '';
-const ACCODING_MODERN_IS_APP = location.origin === ACCODING_DIRECT_ORIGIN || Boolean(ACCODING_VPN_PREFIX);
+const ACCODING_MODERN_IS_APP = ACCODING_DIRECT_ORIGINS.has(location.origin) || Boolean(ACCODING_VPN_PREFIX);
 const ACCODING_APP_PATHNAME = ACCODING_VPN_PREFIX
   ? (location.pathname.slice(ACCODING_VPN_PREFIX.length) || '/') : location.pathname;
 const accodingPath = path => {

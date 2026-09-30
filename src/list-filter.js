@@ -49,7 +49,7 @@ function mountListFilter({page, table, wrap, toolbar, input, info, empty, dataRo
         const response = await fetch(url, {credentials: 'same-origin', signal: request.signal,
           ...(body ? {method: 'POST', body} : {})});
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        if (accodingPagePath(new URL(response.url)) !== accodingPagePath(new URL(url))) throw new Error('登录状态已失效或无权读取，请刷新页面');
+        if ((typeof accodingPagePath==='function'?accodingPagePath(new URL(response.url)):new URL(response.url).pathname) !== (typeof accodingPagePath==='function'?accodingPagePath(new URL(url)):new URL(url).pathname)) throw new Error('登录状态已失效或无权读取，请刷新页面');
         const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
         const remote = [...doc.querySelectorAll('#page table.table')].filter(t => !t.closest('.modal'))[tableIndex];
         const rows = remote && [...remote.rows].filter(row => row.cells.length);
