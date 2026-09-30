@@ -193,17 +193,17 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
       const doc=new DOMParser().parseFromString(await res.text(),'text/html'), seen=new Set();
       const items=[option('','选择可见比赛')];
       for(const a of doc.querySelectorAll('a[href]')){
-        const url=new URL(a.getAttribute('href'),location.origin), id=url.pathname==='/contest-ng/index.html'?url.hash.match(/^#\/(\d+)/)?.[1]:url.pathname.match(/^\/contest\/(\d+)$/)?.[1];
+        const url=new URL(a.getAttribute('href'),location.origin), id=accodingPagePath(url)==='/contest-ng/index.html'?url.hash.match(/^#\/(\d+)/)?.[1]:accodingPagePath(url).match(/^\/contest\/(\d+)$/)?.[1];
         if(!id||seen.has(id))continue;seen.add(id);items.push(option(id,a.textContent.trim()));
       }
       $('#contest-select').replaceChildren(...items);
-      const current=location.hash.match(/^#\/(\d+)/)?.[1]||location.pathname.match(/^\/contest\/(\d+)/)?.[1];
+      const current=location.hash.match(/^#\/(\d+)/)?.[1]||ACCODING_APP_PATHNAME.match(/^\/contest\/(\d+)/)?.[1];
       if(current){if(!seen.has(current))$('#contest-select').append(option(current,`当前比赛 ${current}`));$('#contest-select').value=current;}
     }catch(e){notice('比赛列表暂时无法读取，可手动输入比赛 ID。',true);}
   }
   function codeLink(id) {
     if(!/^[1-9]\d*$/.test(String(id)))return el('span','—');
-    const a=el('a','查看代码');a.href=`/submission/${id}`;a.target='_blank';a.rel='noopener noreferrer';a.setAttribute('aria-label',`查看提交 ${id} 的代码`);return a;
+    const a=el('a','查看代码');a.href=accodingPath(`/submission/${id}`);a.target='_blank';a.rel='noopener noreferrer';a.setAttribute('aria-label',`查看提交 ${id} 的代码`);return a;
   }
   function contestSubmissions() {
     return (submissionCache||[]).filter(s=>contestCore.time(s.created_at)>=contest.start&&contestCore.time(s.created_at)<contest.end);
@@ -339,7 +339,7 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     $('#submissions').replaceChildren(table(['提交 ID','题目','结果','得分','语言','提交时间','代码','复核'],rows.slice(submissionPage*30,submissionPage*30+30).map(s=>{
       const p=contest.problems.find(p=>p.id===String(s.problem_id));
       const code=/^[1-9]\d*$/.test(String(s.id)) ? el('a','查看代码') : el('span','—');
-      if(code.tagName==='A'){code.href=`/submission/${s.id}`;code.target='_blank';code.rel='noopener noreferrer';code.setAttribute('aria-label',`查看提交 ${s.id} 的代码`);}
+      if(code.tagName==='A'){code.href=accodingPath(`/submission/${s.id}`);code.target='_blank';code.rel='noopener noreferrer';code.setAttribute('aria-label',`查看提交 ${s.id} 的代码`);}
       return [s.id,p?`${p.label} · ${p.title}`:String(s.problem_id),el('span',s.result||'待评测',s.result==='AC'?'ac':pending(s)?'pending':'bad'),s.score??'—',s.lang,new Date(s.created_at).toLocaleString(),code,button('查看复核',async()=>{await switchPane('review');await reviewPanel.openDetail(String(s.id));})];
     })));
     pager($('#submission-pager'),rows.length,submissionPage,page=>{submissionPage=page;drawSubmissions();});
