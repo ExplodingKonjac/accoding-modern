@@ -200,7 +200,7 @@ function mountContestBoard(Core) {
     for(const a of document.querySelectorAll('a[href]')){
       if(a.dataset.amBoardLink || a.closest('#navbar'))continue;
       const url=new URL(a.href,location.href);if(url.origin!==location.origin)continue;
-      const id=url.pathname==='/contest-ng/index.html'?url.hash.match(/^#\/(\d+)\/?$/)?.[1]:url.pathname.match(/^\/contest\/(\d+)\/index\/?$/)?.[1];
+      const path=accodingPagePath(url),id=path==='/contest-ng/index.html'?url.hash.match(/^#\/(\d+)\/?$/)?.[1]:path.match(/^\/contest\/(\d+)\/index\/?$/)?.[1];
       if(!id || currentId())continue;
       a.dataset.amBoardLink='1';const b=document.createElement('button');b.type='button';b.textContent='统计看板';b.className='am-button';b.style.cssText='margin-left:10px;font-size:12px;white-space:nowrap';b.addEventListener('click',event=>{event.preventDefault();open(id);});a.after(b);
     }

@@ -21,6 +21,7 @@ function mountBackNavigation() {
   }
   function update() {
     const target=parent();
+    if(target)target.href=accodingPath(target.href);
     const content=document.querySelector('#page')||document.querySelector('[ng-view]>.col-lg-10');
     if(!target||!content){document.getElementById('am-back-nav')?.remove();return;}
     let nav=document.getElementById('am-back-nav');

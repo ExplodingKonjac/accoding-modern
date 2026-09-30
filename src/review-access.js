@@ -2,13 +2,19 @@
 const reviewAccessSessions=new Map(),reviewAccessPending=new Map();
 const reviewProfileNames=new Map(),reviewProfilePending=new Map();
 function reviewAccount(doc){
-  if(!doc.querySelector('a[href="/user/logout"]'))return null;
-  const links=[...doc.querySelectorAll('a[href]')].filter(a=>/^\/user\/\d+\/index$/.test(a.getAttribute('href')||''));
+  const allLinks=[...doc.querySelectorAll('a[href]')];
+  const path=a=>{
+    const href=a.getAttribute('href')||'';
+    if(typeof accodingPagePath!=='function')return href;
+    try{const url=new URL(href,location.href);return url.origin===location.origin?accodingPagePath(url):'';}catch{return '';}
+  };
+  if(!doc.querySelector('a[href="/user/logout"]')&&!allLinks.some(a=>path(a)==='/user/logout'))return null;
+  const links=allLinks.filter(a=>/^\/user\/\d+\/index$/.test(path(a)));
   // A viewed student's profile link must never become the signed-in reviewer.
   const welcome=links.find(a=>/^欢迎/.test(a.textContent.trim()));
   const link=welcome||links.find(a=>a.textContent.replace(/[\s○]/g,'')==='个人信息');
   if(!link)return null;
-  return {userId:link.getAttribute('href').split('/')[2],name:welcome?.textContent.trim().replace(/^欢迎[，,：:\s]*/,'').trim()||''};
+  return {userId:path(link).split('/')[2],name:welcome?.textContent.trim().replace(/^欢迎[，,：:\s]*/,'').trim()||''};
 }
 async function reviewProfileName(userId){
   userId=String(userId);if(!/^[1-9]\d*$/.test(userId))return '';

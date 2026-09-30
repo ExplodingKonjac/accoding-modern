@@ -1,5 +1,5 @@
 function reviewFetch(url,options={}) {
-  if (location.origin!=='https://accoding-4000.e1.buaa.edu.cn' ||
+  if (!['https://accoding-4000.e1.buaa.edu.cn','https://accoding-4000.e2.buaa.edu.cn','https://accoding-4000.e3.buaa.edu.cn','https://d.buaa.edu.cn'].includes(location.origin) ||
       !url.startsWith('https://muzermat.online:8443/oj-review-api/v4/')) return fetch(url,options);
   if (typeof GM_xmlhttpRequest!=='function') return Promise.reject(new Error('VPN 核查需要脚本管理器的跨域请求权限，请重新安装最新版脚本。'));
   return new Promise((resolve,reject)=>{

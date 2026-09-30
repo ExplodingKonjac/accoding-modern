@@ -41,3 +41,11 @@ test('aborting VPN review cancels the privileged request',async()=>{
   assert.equal(aborted,true);
   cancel.onload({status:200,responseText:'{}'});
 });
+
+test('e2, e3 and path-based VPN review use the privileged transport',async()=>{
+  for(const origin of ['https://accoding-4000.e2.buaa.edu.cn','https://accoding-4000.e3.buaa.edu.cn','https://d.buaa.edu.cn']){
+    const sandbox=context(origin,options=>{queueMicrotask(()=>options.onload({status:200,responseText:'{}'}));return {abort(){}};},()=>{throw Error('VPN must use privileged transport');});
+    const response=await vm.runInContext(source+';reviewFetch(url)',Object.assign(sandbox,{url:api}));
+    assert.equal(response.status,200);
+  }
+});

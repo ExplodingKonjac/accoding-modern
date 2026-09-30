@@ -10,12 +10,13 @@ const ACCODING_APP_PATHNAME = ACCODING_VPN_PREFIX
   ? (location.pathname.slice(ACCODING_VPN_PREFIX.length) || '/') : location.pathname;
 const accodingPath = path => {
   const value = String(path || '');
-  if (!ACCODING_VPN_PREFIX || !value.startsWith('/') || value.startsWith(ACCODING_VPN_PREFIX + '/')) return value;
+  if (!ACCODING_VPN_PREFIX || !value.startsWith('/') || value.startsWith('//') ||
+      value===ACCODING_VPN_PREFIX || ['/', '?', '#'].some(suffix=>value.startsWith(ACCODING_VPN_PREFIX+suffix))) return value;
   return ACCODING_VPN_PREFIX + value;
 };
 const accodingPagePath = value => {
   const pathname = value instanceof URL ? value.pathname : String(value || '');
-  return ACCODING_VPN_PREFIX && pathname.startsWith(ACCODING_VPN_PREFIX)
+  return ACCODING_VPN_PREFIX && (pathname===ACCODING_VPN_PREFIX || pathname.startsWith(ACCODING_VPN_PREFIX+'/'))
     ? (pathname.slice(ACCODING_VPN_PREFIX.length) || '/') : pathname;
 };
 
@@ -24,14 +25,20 @@ const accodingPagePath = value => {
 // unchanged. This also covers modules added later without duplicating prefix logic.
 if (ACCODING_VPN_PREFIX) {
   const nativeFetch = window.fetch.bind(window);
+  const rebaseUrl=value=>{
+    const url=new URL(value);
+    if(url.origin===location.origin)url.pathname=accodingPath(url.pathname);
+    return url;
+  };
   window.fetch = (input, init) => {
-    if (typeof input === 'string') input = accodingPath(input);
+    if (typeof input === 'string') {
+      if(input.startsWith('/'))input=accodingPath(input);
+      else if(/^https?:\/\//.test(input)&&new URL(input).origin===location.origin)input=rebaseUrl(input).href;
+    }
+    else if(input instanceof URL)input=rebaseUrl(input);
     else if (input instanceof Request && new URL(input.url).origin === location.origin) {
-      const url = new URL(input.url);
-      if (!url.pathname.startsWith(ACCODING_VPN_PREFIX + '/')) {
-        url.pathname = accodingPath(url.pathname);
-        input = new Request(url, input);
-      }
+      const url=rebaseUrl(input.url);
+      if(url.href!==input.url)input=new Request(url,input);
     }
     return nativeFetch(input, init);
   };

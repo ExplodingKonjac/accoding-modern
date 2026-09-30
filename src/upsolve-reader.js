@@ -17,7 +17,7 @@ function createUpsolveReader(time) {
     let next=null;
     if(nextNode){const match=nextNode.getAttribute('onclick').match(/change_page\(["']([^"']+)["']\)/);if(!match)throw new Error('无法识别提交分页。');
       const url=new URL(match[1],location.origin+accodingPath('/submission/index'));const n=Number(url.searchParams.get('offset'));
-      if(url.origin!==location.origin||url.pathname!=='/submission/index'||!Number.isInteger(n)||n<=offset)throw new Error('提交分页异常。');next=n;}
+      if(url.origin!==location.origin||accodingPagePath(url)!=='/submission/index'||!Number.isInteger(n)||n<=offset)throw new Error('提交分页异常。');next=n;}
     return {rows,next};
   }
   async function fetchText(url, options, signal) {

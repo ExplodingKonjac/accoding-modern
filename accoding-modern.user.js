@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.19.3
+// @version      1.19.4
 // @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @include      https://accoding-4000.e1.buaa.edu.cn/*
@@ -23,7 +23,7 @@
 
 (() => {
 'use strict';
-const ACCODING_MODERN_VERSION="1.19.3";
+const ACCODING_MODERN_VERSION="1.19.4";
 // Runtime URL compatibility for the direct site and BUAA VPN reverse proxy.
 // The VPN keeps the upstream app under /https-4000/<opaque-token>/, so absolute
 // root requests and pathname checks must be evaluated relative to that prefix.
@@ -36,12 +36,13 @@ const ACCODING_APP_PATHNAME = ACCODING_VPN_PREFIX
   ? (location.pathname.slice(ACCODING_VPN_PREFIX.length) || '/') : location.pathname;
 const accodingPath = path => {
   const value = String(path || '');
-  if (!ACCODING_VPN_PREFIX || !value.startsWith('/') || value.startsWith(ACCODING_VPN_PREFIX + '/')) return value;
+  if (!ACCODING_VPN_PREFIX || !value.startsWith('/') || value.startsWith('//') ||
+      value===ACCODING_VPN_PREFIX || ['/', '?', '#'].some(suffix=>value.startsWith(ACCODING_VPN_PREFIX+suffix))) return value;
   return ACCODING_VPN_PREFIX + value;
 };
 const accodingPagePath = value => {
   const pathname = value instanceof URL ? value.pathname : String(value || '');
-  return ACCODING_VPN_PREFIX && pathname.startsWith(ACCODING_VPN_PREFIX)
+  return ACCODING_VPN_PREFIX && (pathname===ACCODING_VPN_PREFIX || pathname.startsWith(ACCODING_VPN_PREFIX+'/'))
     ? (pathname.slice(ACCODING_VPN_PREFIX.length) || '/') : pathname;
 };
 
@@ -50,14 +51,20 @@ const accodingPagePath = value => {
 // unchanged. This also covers modules added later without duplicating prefix logic.
 if (ACCODING_VPN_PREFIX) {
   const nativeFetch = window.fetch.bind(window);
+  const rebaseUrl=value=>{
+    const url=new URL(value);
+    if(url.origin===location.origin)url.pathname=accodingPath(url.pathname);
+    return url;
+  };
   window.fetch = (input, init) => {
-    if (typeof input === 'string') input = accodingPath(input);
+    if (typeof input === 'string') {
+      if(input.startsWith('/'))input=accodingPath(input);
+      else if(/^https?:\/\//.test(input)&&new URL(input).origin===location.origin)input=rebaseUrl(input).href;
+    }
+    else if(input instanceof URL)input=rebaseUrl(input);
     else if (input instanceof Request && new URL(input.url).origin === location.origin) {
-      const url = new URL(input.url);
-      if (!url.pathname.startsWith(ACCODING_VPN_PREFIX + '/')) {
-        url.pathname = accodingPath(url.pathname);
-        input = new Request(url, input);
-      }
+      const url=rebaseUrl(input.url);
+      if(url.href!==input.url)input=new Request(url,input);
     }
     return nativeFetch(input, init);
   };
@@ -66,7 +73,7 @@ if (ACCODING_VPN_PREFIX) {
 if (!ACCODING_MODERN_IS_APP) return;
 const pageWindow=typeof unsafeWindow==='undefined'?window:unsafeWindow;
 function reviewFetch(url,options={}) {
-  if (location.origin!=='https://accoding-4000.e1.buaa.edu.cn' ||
+  if (!['https://accoding-4000.e1.buaa.edu.cn','https://accoding-4000.e2.buaa.edu.cn','https://accoding-4000.e3.buaa.edu.cn','https://d.buaa.edu.cn'].includes(location.origin) ||
       !url.startsWith('https://muzermat.online:8443/oj-review-api/v4/')) return fetch(url,options);
   if (typeof GM_xmlhttpRequest!=='function') return Promise.reject(new Error('VPN 核查需要脚本管理器的跨域请求权限，请重新安装最新版脚本。'));
   return new Promise((resolve,reject)=>{
@@ -412,7 +419,7 @@ function mountContestBoard(Core) {
     for(const a of document.querySelectorAll('a[href]')){
       if(a.dataset.amBoardLink || a.closest('#navbar'))continue;
       const url=new URL(a.href,location.href);if(url.origin!==location.origin)continue;
-      const id=url.pathname==='/contest-ng/index.html'?url.hash.match(/^#\/(\d+)\/?$/)?.[1]:url.pathname.match(/^\/contest\/(\d+)\/index\/?$/)?.[1];
+      const path=accodingPagePath(url),id=path==='/contest-ng/index.html'?url.hash.match(/^#\/(\d+)\/?$/)?.[1]:path.match(/^\/contest\/(\d+)\/index\/?$/)?.[1];
       if(!id || currentId())continue;
       a.dataset.amBoardLink='1';const b=document.createElement('button');b.type='button';b.textContent='统计看板';b.className='am-button';b.style.cssText='margin-left:10px;font-size:12px;white-space:nowrap';b.addEventListener('click',event=>{event.preventDefault();open(id);});a.after(b);
     }
@@ -1243,6 +1250,7 @@ function mountBackNavigation() {
   }
   function update() {
     const target=parent();
+    if(target)target.href=accodingPath(target.href);
     const content=document.querySelector('#page')||document.querySelector('[ng-view]>.col-lg-10');
     if(!target||!content){document.getElementById('am-back-nav')?.remove();return;}
     let nav=document.getElementById('am-back-nav');
@@ -1841,13 +1849,19 @@ function createAiReviewCore() {
 const reviewAccessSessions=new Map(),reviewAccessPending=new Map();
 const reviewProfileNames=new Map(),reviewProfilePending=new Map();
 function reviewAccount(doc){
-  if(!doc.querySelector('a[href="/user/logout"]'))return null;
-  const links=[...doc.querySelectorAll('a[href]')].filter(a=>/^\/user\/\d+\/index$/.test(a.getAttribute('href')||''));
+  const allLinks=[...doc.querySelectorAll('a[href]')];
+  const path=a=>{
+    const href=a.getAttribute('href')||'';
+    if(typeof accodingPagePath!=='function')return href;
+    try{const url=new URL(href,location.href);return url.origin===location.origin?accodingPagePath(url):'';}catch{return '';}
+  };
+  if(!doc.querySelector('a[href="/user/logout"]')&&!allLinks.some(a=>path(a)==='/user/logout'))return null;
+  const links=allLinks.filter(a=>/^\/user\/\d+\/index$/.test(path(a)));
   // A viewed student's profile link must never become the signed-in reviewer.
   const welcome=links.find(a=>/^欢迎/.test(a.textContent.trim()));
   const link=welcome||links.find(a=>a.textContent.replace(/[\s○]/g,'')==='个人信息');
   if(!link)return null;
-  return {userId:link.getAttribute('href').split('/')[2],name:welcome?.textContent.trim().replace(/^欢迎[，,：:\s]*/,'').trim()||''};
+  return {userId:path(link).split('/')[2],name:welcome?.textContent.trim().replace(/^欢迎[，,：:\s]*/,'').trim()||''};
 }
 async function reviewProfileName(userId){
   userId=String(userId);if(!/^[1-9]\d*$/.test(userId))return '';
@@ -2649,7 +2663,7 @@ function createUpsolveReader(time) {
     let next=null;
     if(nextNode){const match=nextNode.getAttribute('onclick').match(/change_page\(["']([^"']+)["']\)/);if(!match)throw new Error('无法识别提交分页。');
       const url=new URL(match[1],location.origin+accodingPath('/submission/index'));const n=Number(url.searchParams.get('offset'));
-      if(url.origin!==location.origin||url.pathname!=='/submission/index'||!Number.isInteger(n)||n<=offset)throw new Error('提交分页异常。');next=n;}
+      if(url.origin!==location.origin||accodingPagePath(url)!=='/submission/index'||!Number.isInteger(n)||n<=offset)throw new Error('提交分页异常。');next=n;}
     return {rows,next};
   }
   async function fetchText(url, options, signal) {
