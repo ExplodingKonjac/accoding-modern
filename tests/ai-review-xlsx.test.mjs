@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createAiReviewExport} from '../src/ai-review-xlsx.mjs';
+import {aiReviewRuleScore, createAiReviewExport} from '../src/ai-review-xlsx.mjs';
 
 const context = {className: '班/级', contest: {id: 7, title: '比赛:一', problems: [{id: 9, title: '字符 & <转换>'}]}, summary: {rows: [
   {status: 'matched', userId: '1', name: '=HYPERLINK("bad")', studentId: '0012345678901234567'},
@@ -28,7 +28,7 @@ test('review XLSX matches local columns, styling and identity ordering with lite
   const result = createAiReviewExport(rows, [], context), files = await entries(result), sheet = files.get('xl/worksheets/sheet1.xml');
   assert.equal(result.filename, '班_级-比赛_一-代码复核.xlsx');
   assert.equal(result.blob.type, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  for (const title of ['姓名', '学号', '题目', '提交记录id', '规则匹配得分', '规则命中详情']) assert.ok(sheet.includes(`>${title}</t>`));
+  for (const title of ['姓名', '学号', '题目', '提交记录id', '规则匹配得分', '规则命中详情', '助教复核结果', '助教复核理由']) assert.ok(sheet.includes(`>${title}</t>`));
   assert.match(sheet, /r="B2"[^>]*t="inlineStr"[^>]*><is><t[^>]*>0012345678901234567/);
   assert.match(sheet, /r="D2"[^>]*><is><t[^>]*>2</);
   assert.match(sheet, /r="D3"[^>]*><is><t[^>]*>11</);
@@ -40,8 +40,8 @@ test('review XLSX matches local columns, styling and identity ordering with lite
   assert.match(sheet, /=HYPERLINK\(&quot;bad&quot;\)/);
   assert.doesNotMatch(sheet, /<f[ >]/);
   assert.match(sheet, /state="frozen"/);
-  assert.match(sheet, /autoFilter ref="A1:F4"/);
-  assert.deepEqual([...sheet.matchAll(/width="(\d+)"/g)].map(match => Number(match[1])), [14, 17, 43, 19, 19, 56]);
+  assert.match(sheet, /autoFilter ref="A1:H4"/);
+  assert.deepEqual([...sheet.matchAll(/width="(\d+)"/g)].map(match => Number(match[1])), [14, 17, 43, 19, 19, 56, 20, 56]);
   assert.match(files.get('xl/styles.xml'), /FF254766/);
   assert.match(files.get('xl/_rels/workbook.xml.rels'), /Target="worksheets\/sheet2.xml"/);
   assert.match(files.get('xl/workbook.xml'), /name="助教反馈历史"/);
@@ -53,7 +53,34 @@ test('feedback revisions retain whole-contest history, conclusions and original 
   const files = await entries(createAiReviewExport([], feedback, context)), sheet = files.get('xl/worksheets/sheet2.xml');
   assert.match(sheet, /autoFilter ref="A1:J3"/);
   for (const text of ['999', '已核查为AI', '已核查为无AI', '1970-01-01T00:00:01.000Z', '编号步骤', '原始依据', '理由\n第二行\ufffd']) assert.ok(sheet.includes(text));
-  assert.match(files.get('xl/worksheets/sheet1.xml'), /autoFilter ref="A1:F1"/);
+  assert.match(files.get('xl/worksheets/sheet1.xml'), /autoFilter ref="A1:H1"/);
+});
+
+test('frozen rule reasons supply exact scores without guessing from labels or TA prose', () => {
+  const candidate = reason => ({decision_kind: 'rule_feature_candidate', result: {reason}});
+  // Matches the actual cloud publication format, including quick-pass timing text.
+  assert.equal(aiReviewRuleScore(candidate('current:1-31 快速过题：F 题首次 AC，阈值 ≤ 5 分钟；规则评分60分（嫌疑阈值60分）。')), 60);
+  for (const score of [0, 65, 80, 100]) assert.equal(aiReviewRuleScore(candidate(`current:1-2 规则评分${score}分（嫌疑阈值60分）；其他依据。`)), score);
+  assert.equal(aiReviewRuleScore({...candidate('规则评分60分（嫌疑阈值60分）。'), scoring: {score: 85}}), 85);
+  for (const reason of ['规则评分160分（嫌疑阈值60分）。', '规则评分-1分（嫌疑阈值60分）。', '相邻提交间隔60秒，代码变化比例80%', '没有得分']) assert.equal(aiReviewRuleScore(candidate(reason)), '未评分');
+  assert.equal(aiReviewRuleScore({decision_kind: 'human_review', result: {reason: '规则评分80分（嫌疑阈值60分）。'}}), '未评分');
+  assert.equal(aiReviewRuleScore({result: {label: ['编号步骤']}, annotation: {reason: '规则评分80分（嫌疑阈值60分）。'}}), '未评分');
+});
+
+test('main sheet uses the latest same-source feedback across runs and retains literal reasons', async () => {
+  const hash = 'a'.repeat(64), note = (id, status, code_hash = hash) => ({id, submission_id: '1', code_hash, status, reason: `=理由${id}\n第二行`, run_id: 'older-run'});
+  const row = {...review('1'), code_hash: hash, annotation: note(2, 'suspected'), decision_kind: 'rule_feature_candidate', result: {label: ['编号步骤'], reason: 'current:1-2 规则评分70分（嫌疑阈值60分）。'}};
+  const feedback = [note(4, 'ordinary'), note(1, 'suspected'), note(99, 'suspected', 'b'.repeat(64))];
+  const files = await entries(createAiReviewExport([row, review('2')], feedback, context)), sheet = files.get('xl/worksheets/sheet1.xml');
+  assert.match(sheet, /r="E2"[^>]*><is><t[^>]*>70</);
+  assert.match(sheet, /r="G2"[^>]*><is><t[^>]*>已核查为无AI</);
+  assert.match(sheet, /r="H2"[^>]*><is><t[^>]*>=理由4\n第二行</);
+  assert.match(sheet, /r="G3"[^>]*><is><t[^>]*>未复核</);
+  assert.doesNotMatch(sheet, /<f[ >]/);
+  const newer = {...row, annotation: note(5, 'suspected')};
+  const annotationSheet = (await entries(createAiReviewExport([newer], feedback, context))).get('xl/worksheets/sheet1.xml');
+  assert.match(annotationSheet, /r="G2"[^>]*><is><t[^>]*>已核查为AI</);
+  assert.match(annotationSheet, /r="H2"[^>]*><is><t[^>]*>=理由5\n第二行</);
 });
 
 test('unmatched and missing student identities fail instead of creating an incomplete roster', () => {
