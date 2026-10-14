@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.19.4
+// @version      1.19.5
 // @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @include      https://accoding-4000.e1.buaa.edu.cn/*
@@ -23,7 +23,7 @@
 
 (() => {
 'use strict';
-const ACCODING_MODERN_VERSION="1.19.4";
+const ACCODING_MODERN_VERSION="1.19.5";
 // Runtime URL compatibility for the direct site and BUAA VPN reverse proxy.
 // The VPN keeps the upstream app under /https-4000/<opaque-token>/, so absolute
 // root requests and pathname checks must be evaluated relative to that prefix.
@@ -1688,6 +1688,28 @@ const serializeClassScoreXlsx = createClassScoreXlsx;
 const buildClassScoreXlsx = createClassScoreXlsx;
 function createClassScoreXlsxBlob(matrix) { return new Blob([createClassScoreXlsx(matrix)], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}); }
 
+/** Styled text-only worksheets: identifiers and formula-like text stay literal. */
+function createTextXlsx(sheets) {
+  const main = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  const rel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const pkg = 'http://schemas.openxmlformats.org/package/2006/relationships';
+  const declaration = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  const files = sheets.map((sheet, index) => {
+    const rows = [sheet.headers, ...sheet.rows], end = `${columnName(sheet.headers.length)}${rows.length}`;
+    const columns = sheet.widths.map((width, i) => `<col min="${i + 1}" max="${i + 1}" width="${width}" customWidth="1"/>`).join('');
+    const data = rows.map((row, i) => `<row r="${i + 1}"${i ? '' : ' ht="24" customHeight="1"'}>${row.map((value, j) => `<c r="${columnName(j + 1)}${i + 1}" t="inlineStr" s="${i ? 2 : 1}"><is><t xml:space="preserve">${xmlEscape(value)}</t></is></c>`).join('')}</row>`).join('');
+    return {name: `xl/worksheets/sheet${index + 1}.xml`, data: `${declaration}<worksheet xmlns="${main}"><dimension ref="A1:${end}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${columns}</cols><sheetData>${data}</sheetData><autoFilter ref="A1:${end}"/></worksheet>`};
+  });
+  const styles = `${declaration}<styleSheet xmlns="${main}"><fonts count="2"><font><sz val="11"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="11"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF254766"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  return zipStore([
+    {name: '[Content_Types].xml', data: `${declaration}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`},
+    {name: '_rels/.rels', data: `${declaration}<Relationships xmlns="${pkg}"><Relationship Id="rId1" Type="${rel}/officeDocument" Target="xl/workbook.xml"/></Relationships>`},
+    {name: 'xl/workbook.xml', data: `${declaration}<workbook xmlns="${main}" xmlns:r="${rel}"><sheets>${sheets.map((sheet, i) => `<sheet name="${xmlEscape(sheet.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`},
+    {name: 'xl/_rels/workbook.xml.rels', data: `${declaration}<Relationships xmlns="${pkg}">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${rel}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${sheets.length + 1}" Type="${rel}/styles" Target="styles.xml"/></Relationships>`},
+    {name: 'xl/styles.xml', data: styles}, ...files
+  ]);
+}
+
 
 let classXlsReader;
 
@@ -1845,6 +1867,32 @@ function createAiReviewCore() {
   return {reviewCursor,lineDiff,api,apiV3,apiV4,selections,states,reviewStates,featureLabels,members,hasFlaggedReview,hasFeatureReview,hasReviewRecord,verifySource,sourceVariants,sourceFromOj,client,featureClient};
 }
 
+
+/** Match the local review agent's six-column suspect export. */
+function createAiReviewExport(reviews, feedback, context) {
+  const members = new Map(context.summary.rows.filter(row => row.status === 'matched').map(row => [String(row.userId), row]));
+  const problems = new Map(context.contest.problems.map(problem => [String(problem.id), problem]));
+  const identity = review => {
+    const member = members.get(String(review.creator_id));
+    if (!member?.name?.trim() || !String(member.studentId ?? '').trim()) throw new Error('提交缺少可核实的姓名或学号，未导出不完整名单。');
+    return member;
+  };
+  const ordered = [...reviews].sort((a, b) => String(identity(a).studentId).localeCompare(String(identity(b).studentId)) || Number(a.problem_id) - Number(b.problem_id) || Number(a.submission_id) - Number(b.submission_id));
+  const rows = ordered.map(review => {
+    const member = identity(review), problem = problems.get(String(review.problem_id)), scoring = review.scoring;
+    const labels = [...new Set(scoring?.items?.map(item => item.label) || review.result?.label || review.labels || [])];
+    return [member.name, String(member.studentId), `${problem?.title || '题目'}（题目 ID：${review.problem_id}）`, String(review.submission_id), scoring?.score ?? '未评分', labels.join('；') || '无规则命中'];
+  });
+  const states = {suspected: '已核查为AI', ordinary: '已核查为无AI'};
+  const history = feedback.map(note => [String(note.submission_id), states[note.status] || note.status || '', note.reason || '', note.reviewer_name || note.reviewer_id || '', note.created == null ? '' : new Date(note.created * 1000).toISOString(), String(note.id ?? ''), note.run_id || '', note.code_hash || '', (note.baseline?.result?.label || []).join('；'), note.baseline?.result?.reason || '']);
+  const content = createTextXlsx([
+    {name: '嫌疑名单', headers: ['姓名', '学号', '题目', '提交记录id', '规则匹配得分', '规则命中详情'], rows, widths: [14, 17, 43, 19, 19, 56]},
+    {name: '助教反馈历史', headers: ['提交记录id', '复核结论', '复核理由', '助教', '反馈时间（UTC）', '修订ID', '核查运行', '源码SHA-256', '原始规则特征', '原始规则理由'], rows: history, widths: [19, 20, 56, 20, 28, 14, 40, 68, 56, 56]}
+  ]);
+  const cleanName = value => String(value ?? '').normalize('NFKC').replace(/[\u0000-\u001f\u007f\\/:*?"<>|]/g, '_').trim().slice(0, 60) || '未命名';
+  return {filename: `${cleanName(context.className)}-${cleanName(context.contest.title || context.contest.id)}-代码复核.xlsx`, blob: new Blob([content], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})};
+}
+
 // Prove existing OJ source-read access without transferring login cookies.
 const reviewAccessSessions=new Map(),reviewAccessPending=new Map();
 const reviewProfileNames=new Map(),reviewProfilePending=new Map();
@@ -1941,7 +1989,8 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   const list=el('div');list.className='table-wrap';const pager=el('div');pager.className='pager';const detail=el('section');detail.className='panel';detail.hidden=true;
   const style=el('style');style.textContent=`.ar-toolbar,.ar-actions,.ar-review-head,.ar-review-nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}.ar-toolbar select{min-width:140px;flex:1}.ar-actions button{min-height:38px}.ar-note{display:block;width:100%;min-height:100px;padding:12px;border:1px solid #ccd9e9;border-radius:8px;box-sizing:border-box;font:inherit}.ar-source{font:13px/1.65 ui-monospace,monospace;overflow:auto;max-height:540px;background:#f7f9fc;padding:12px;border:1px solid #dce3ed;border-radius:8px}.ar-history{border-left:3px solid #d7e3f7;padding:10px 14px;margin:12px 0}.ar-table td{white-space:normal;min-width:90px}.ar-table td:last-child{white-space:nowrap}.ar-review-page,.ar-student-page{position:fixed;inset:0;z-index:2147483002;overflow:auto;background:#eef3f9;padding:18px max(18px,calc((100vw - 1600px)/2));margin:0;border:0;border-radius:0;box-sizing:border-box}.ar-student-page{z-index:2147483003}.ar-review-page:has(.ar-student-page){overflow:hidden}.ar-current-submission{background:#e8f0ff}.ar-review-head{position:sticky;top:0;z-index:3;background:#fff;padding:10px 16px;border:1px solid #dfe7f0;border-radius:12px;justify-content:space-between}.ar-review-head h2{margin:0;font-size:19px}.ar-review-nav{margin:0}.ar-state{font-weight:700;border-radius:8px;padding:5px 12px;background:#e8f0ff;color:#3156a1}.ar-state[data-state=reviewed_ai]{background:#fff0e6;color:#a14718}.ar-state[data-state=reviewed_no_ai]{background:#e7f7ed;color:#216b3f}.ar-state[data-state=rule_unmatched]{background:#eef1f5;color:#526175}.ar-compare{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0;border:1px solid #dce3ed;border-radius:10px;overflow:hidden;background:#fff}.ar-compare-title{font-weight:700;padding:10px 14px;background:#f2f6fc;border-bottom:1px solid #dce3ed}.ar-compare-title:nth-child(2){border-left:1px solid #dce3ed}.ar-compare-row{display:contents}.ar-code-line{min-width:0;overflow:visible;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 ui-monospace,monospace;padding:0 10px;min-height:23px}.ar-code-line:nth-child(2n){border-left:1px solid #dce3ed}.ar-code-line.add{background:#dafbe1;color:#116329}.ar-code-line.remove{background:#ffebe9;color:#82071e}.ar-code-line .num{display:inline-block;min-width:3em;margin-right:10px;text-align:right;color:#8190a4;user-select:none}.ar-review-content{background:#fff;border:1px solid #dfe7f0;border-radius:12px;margin-top:12px;padding:18px}.ar-review-content>h3{margin-top:22px}@media(max-width:700px){.ar-toolbar>*{flex:1 1 150px}.ar-actions>*{flex:1}.ar-review-page{padding:8px}.ar-code-line{font-size:11px}}`;
   const controls=el('div');controls.className='ar-toolbar';controls.append(problem,feature,state);
-  const actions=el('div');actions.className='ar-actions';actions.append(button('刷新云端结果',()=>void reload()),button('导出当前结果',()=>void exportRows()));
+  const exportButton=button('导出当前结果 XLSX',()=>void exportRows());
+  const actions=el('div');actions.className='ar-actions';actions.append(button('刷新云端结果',()=>void reload()),exportButton);
   const sidInput=el('input');sidInput.placeholder='提交 ID';sidInput.inputMode='numeric';sidInput.type='number';sidInput.min='1';sidInput.autocomplete='off';sidInput.setAttribute('aria-label','复核提交 ID');
   actions.append(sidInput,button('查看提交',()=>{if(/^[1-9]\d*$/.test(sidInput.value.trim()))void openDetail(sidInput.value.trim());else message.textContent='请输入有效的提交 ID。';}));
   sidInput.hidden=true;actions.lastElementChild.hidden=true;
@@ -2115,12 +2164,15 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
     target.append(el('h3','助教复核'),note,bar,status,el('h3','云端修改历史'),historyBox);drawHistory();
   }
   async function exportRows(){
-    const c=getContext(),k=key();if(!c.contest||!c.summary||!runId)return;const abort=new AbortController(),timeout=setTimeout(()=>abort.abort(),60000);
-    try{const all=[];let expected=Infinity;for(let offset=0;offset<expected;offset+=100){const r=await client.search(query(c,offset,100),abort.signal);if(k!==key())return;expected=r.total;all.push(...r.reviews);if(!r.reviews.length)break;}
-      const feedback=[];if(getToken()){let after=0;while(true){const packet=await client.exportFeedback(c.contest.id,after,abort.signal);if(k!==key())return;feedback.push(...packet.feedback);if(!packet.feedback.length)break;after=packet.next_after;}}
-      const memberMap=core.members(c.summary.rows),payload={exported_at:new Date().toISOString(),class_name:c.className,run_id:runId,reviews:all.map(r=>({name:memberMap.get(String(r.creator_id))?.name,student_id:memberMap.get(String(r.creator_id))?.studentId,review:r})),feedback};
-      const link=el('a'),url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));link.href=url;link.download='代码复核与助教反馈.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
-    }catch(e){message.textContent='导出失败：'+e.message;}finally{clearTimeout(timeout);}
+    const c=getContext(),k=key();if(exportButton.disabled||!c.contest||!c.summary||!runId)return;const filterKey=()=>JSON.stringify(query(c,0,100)),filter=filterKey(),abort=new AbortController(),timeout=setTimeout(()=>abort.abort(),60000);
+    const valid=()=>k===key()&&filter===filterKey();
+    exportButton.disabled=true;message.textContent='正在准备 XLSX 导出…';
+    try{const all=[];let expected=Infinity;for(let offset=0;offset<expected;offset+=100){const r=await client.search(query(c,offset,100),abort.signal);if(!valid())return;expected=r.total;all.push(...r.reviews);if(!r.reviews.length)break;}
+      const feedback=[];if(getToken()){let after=0;while(true){const packet=await client.exportFeedback(c.contest.id,after,abort.signal);if(!valid())return;feedback.push(...packet.feedback);if(!packet.feedback.length)break;after=packet.next_after;}}
+      if(!valid())return;const result=createAiReviewExport(all,feedback,c);
+      const link=el('a'),url=URL.createObjectURL(result.blob);link.href=url;link.download=result.filename;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      message.textContent=`已导出 ${all.length} 条复核结果及 ${feedback.length} 条助教反馈。`;
+    }catch(e){if(valid())message.textContent='导出失败：'+(e.name==='AbortError'?'读取超时，请重试。':e.message);}finally{clearTimeout(timeout);exportButton.disabled=false;}
   }
   return {reset,openDetail,setProblemScope,setActive(value){active=value;if(value)return refresh();stop();}};
 }
