@@ -4,30 +4,6 @@ import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
 import {webcrypto} from 'node:crypto';
 const script=await readFile(new URL('../src/review-access.js',import.meta.url),'utf8');
-test('standalone source pages resolve the signed-in account name from OJ, not the navigation label',async()=>{
-  const links=[{textContent:'个人信息',getAttribute:()=>'/user/123/index'},{textContent:'欢迎，测试助教',getAttribute:()=>'/user/123/index'}];
-  const account={querySelectorAll:()=>links,querySelector:()=>({})};
-  const empty={querySelectorAll:()=>[],querySelector:()=>null};
-  const requests=[],issuedSession=webcrypto.randomUUID();
-  const context=vm.createContext({document:empty,Map,Number,Date,Error,Promise,TextEncoder,Uint8Array,AbortSignal,crypto:webcrypto,
-    DOMParser:class{parseFromString(text){return text==='HOME'?account:{querySelector:()=>({textContent:'source'})};}},
-    fetch:async(url,init)=>{
-      requests.push({url,init});
-      if(url==='/')return {ok:true,text:async()=>'HOME'};
-      if(url.startsWith('/submission/'))return {ok:true,text:async()=>'SOURCE'};
-      if(url.endsWith('/access/challenge')){
-        const data=JSON.parse(init.body);assert.equal(data.user_id,'123');assert.equal(data.display_name,'测试助教');
-        return {ok:true,json:async()=>({challenge_id:'x',nonce:'n',submission_ids:['11','12','13']})};
-      }
-      assert.ok(url.endsWith('/access/verify'));
-      const proofs=JSON.parse(init.body).answers;assert.equal(proofs.length,3);assert.ok(proofs.every(x=>/^[a-f0-9]{64}$/.test(x[0])));
-      return {ok:true,json:async()=>({token:issuedSession,contest_id:1309,expires:Date.now()/1000+3600})};
-    }});
-  const result=await vm.runInContext(script+';ensureReviewAccess(1309,{sourceVariants:()=>["source"]})',context);
-  assert.equal(result,issuedSession);
-  assert.ok(requests.filter(r=>r.url.startsWith('https://')).every(r=>r.init.credentials==='omit'&&!('Cookie' in r.init.headers)));
-});
-
 function profileContext(fetcher){
   return vm.createContext({Map,Number,Date,Error,Promise,TextEncoder,Uint8Array,AbortSignal,URL,crypto:webcrypto,
     DOMParser:class{parseFromString(text){return {querySelectorAll:selector=>selector==='h3'?[{textContent:text}]:[]};}},fetch:fetcher});
@@ -53,58 +29,59 @@ test('account selection ignores other users in page content and handles the them
   const context=profileContext(async()=>{});context.doc={querySelector:()=>({}),querySelectorAll:()=>[link(1,'学生甲'),link(123,'○ 个人信息')]};
   const account=vm.runInContext(script+';reviewAccount(doc)',context);assert.equal(account.userId,'123');assert.equal(account.name,'');
 });
-test('missing greeting reads the signed-in profile before issuing a cloud challenge',async()=>{
-  const context=profileContext(async(url,init)=>{
-    if(url==='/user/123/index')return {ok:true,url:'https://accoding.buaa.edu.cn:4000'+url,text:async()=>'Expert\n正确助教'};
-    assert.ok(url.endsWith('/access/challenge'));assert.equal(JSON.parse(init.body).display_name,'正确助教');throw Error('challenge-name-verified');
-  });
-  context.document={querySelector:()=>({}),querySelectorAll:()=>[{textContent:'个人信息',getAttribute:()=>'/user/123/index'}]};
-  await assert.rejects(()=>vm.runInContext(script+';ensureReviewAccess(1309,{})',context),/challenge-name-verified/);
+test('loading reviewer helpers has no credential, account or network side effects',()=>{
+  const calls=[];
+  vm.runInContext(script,profileContext(async url=>{calls.push(url);throw Error('unexpected request');}));
+  assert.deepEqual(calls,[]);
+  assert.doesNotMatch(script,/\/access\/(?:challenge|verify|combine)|ensureReviewAccess|expandReviewAccess|localStorage|sessionStorage/);
 });
 
-function unionContext({failIds=[],combineFails=false}={}){
-  const calls=[],links=[{textContent:'欢迎，测试助教',getAttribute:()=>'/user/123/index'}],group=[1,2,3],core={sourceVariants:()=>['source'],courseContests:()=>group.map(id=>({id})),collectedContests:()=>[...group,4].map(id=>({id}))};
-  const context=vm.createContext({document:{querySelector:()=>({}),querySelectorAll:()=>links},Map,Number,Date,Error,Promise,TextEncoder,Uint8Array,AbortSignal,crypto:webcrypto,core,
-    DOMParser:class{parseFromString(){return {querySelector:()=>({textContent:'source'})};}},fetch:async(url,init)=>{
-      const body=init?.body?JSON.parse(init.body):null;calls.push({url,init,body});if(url.startsWith('/submission/'))return {ok:true,text:async()=>'SOURCE'};
-      if(url.endsWith('/challenge'))return failIds.includes(body.contest_id)?{ok:false,json:async()=>({detail:'没有读取权限'})}:{ok:true,json:async()=>({challenge_id:String(body.contest_id),nonce:'nonce',submission_ids:['11','12','13']})};
-      if(url.endsWith('/verify'))return {ok:true,json:async()=>({contest_id:Number(body.challenge_id),token:'proof-'+body.challenge_id,expires:Date.now()/1000+3600})};
-      assert.ok(url.endsWith('/combine'));return combineFails?{ok:false,json:async()=>({detail:'合并失败'})}:{ok:true,json:async()=>({token:'combined',contest_ids:body.tokens.map(token=>Number(token.slice(6))),expires:Date.now()/1000+3600})};
-    }});vm.runInContext(script,context);return {context,calls};
+function writeContext({storage=new Map(),expires=Date.now()/1000+3600,protocol='oj-review-write-proof-v2'}={}){
+  const calls=[],core={sourceVariants:text=>[text]},state={user:'123',name:'测试助教',loggedIn:true};
+  const context=vm.createContext({Map,Set,Number,Date,Error,Promise,TextEncoder,Uint8Array,AbortSignal,URL,crypto:webcrypto,core,
+    GM_getValue:async key=>storage.get(key),GM_setValue:async(key,value)=>storage.set(key,value),
+    DOMParser:class{parseFromString(text){return text==='HOME'?{querySelector:()=>state.loggedIn?{}:null,querySelectorAll:()=>[{textContent:'欢迎，'+state.name,getAttribute:()=>'/user/'+state.user+'/index'}]}:{querySelector:()=>({textContent:'int main() {\r\n  return 0;\r}\n'})};}},
+    fetch:async(url,init)=>{
+      calls.push({url,init});if(url==='/')return {ok:true,text:async()=>'HOME'};if(url.startsWith('/submission/'))return {ok:true,text:async()=>'CODE'};
+      if(url.endsWith('/write-access/challenge'))return {ok:true,json:async()=>({challenge_id:'one',nonce:'nonce',submission_ids:['11','12','13'],protocol,normalization:'newlines-lf-v1'})};
+      assert.ok(url.endsWith('/write-access/verify'));return {ok:true,json:async()=>({token:'write-'+state.user,contest_id:JSON.parse(calls.findLast(call=>call.url.endsWith('/challenge')).init.body).contest_id,expires,reviewer_id:'oj-access-'+state.user,proof_protocol:protocol})};
+    }});vm.runInContext(script,context);return {calls,context,state,storage};
 }
-
-test('cross-contest access combines only successfully verified proof tokens and caches source proofs',async()=>{
-  const {context,calls}=unionContext({failIds:[3]});assert.equal(await vm.runInContext('expandReviewAccess(1,core)',context),'combined');
-  const combined=calls.find(call=>call.url.endsWith('/combine'));assert.deepEqual(combined.body.tokens,['proof-1','proof-2','proof-4']);
-  const coverage=vm.runInContext('reviewAccessCoverage.get(1)',context);assert.deepEqual([...coverage.verified_ids],[1,2,4]);assert.deepEqual([...coverage.failed_ids],[3]);
-  const firstReads=calls.filter(call=>call.url.startsWith('/submission/')).length;
-  assert.equal(await vm.runInContext('expandReviewAccess(1,core)',context),'combined');assert.equal(calls.filter(call=>call.url.startsWith('/submission/')).length,firstReads);
-  assert.equal(calls.filter(call=>call.url.endsWith('/combine')).length,1);
-  assert.ok(calls.filter(call=>call.url.startsWith('https://')).every(call=>call.init.credentials==='omit'&&!('Cookie' in call.init.headers)));
+test('write proof is lazy, domain-separated, newline-normalized and reused from GM storage across pages',async()=>{
+  const {calls,context,storage}=writeContext();assert.equal(calls.length,0);
+  assert.equal(await vm.runInContext('ensureReviewWriteAccess(1327,core)',context),'write-123');
+  const proof=calls.find(call=>call.url.endsWith('/verify')),answers=JSON.parse(proof.init.body).answers;
+  const digest=async text=>Buffer.from(await webcrypto.subtle.digest('SHA-256',new TextEncoder().encode(text))).toString('hex');
+  const expected=await digest('nonce:'+await digest('oj-review-write-proof-v2\nint main() {\n  return 0;\n}\n'));
+  assert.deepEqual(answers,[[expected],[expected],[expected]]);
+  assert.ok(calls.filter(call=>call.url.startsWith('https:')).every(call=>call.init.credentials==='omit'&&!call.init.headers.Authorization));
+  assert.ok([...storage.keys()].every(key=>key.startsWith('accoding-modern.review-write.v2.123.1327')));
+  const next=writeContext({storage});assert.equal(await vm.runInContext('ensureReviewWriteAccess(1327,core)',next.context),'write-123');assert.deepEqual(next.calls.map(call=>call.url),['/'],'cache reuse verifies actual current OJ login only when saving');
+  await vm.runInContext('ensureReviewWriteAccess(1319,core)',next.context);assert.equal(next.calls.filter(call=>call.url.endsWith('/challenge')).length,1,'another contest cannot reuse prior scope');
+});
+test('writer cache rejects expired or legacy proof sessions and is isolated across current OJ accounts',async()=>{
+  const storage=new Map([['accoding-modern.review-write.v2.123.1327',{token:'legacy',contest_id:1327,reviewer_id:'oj-access-123',expires:Date.now()/1000+3600}]]),testcase=writeContext({storage});
+  await vm.runInContext('ensureReviewWriteAccess(1327,core)',testcase.context);assert.equal(testcase.calls.filter(call=>call.url.endsWith('/verify')).length,1);
+  testcase.state.user='456';assert.equal(await vm.runInContext('ensureReviewWriteAccess(1327,core)',testcase.context),'write-456');assert.equal(testcase.calls.filter(call=>call.url.endsWith('/verify')).length,2);
+  testcase.state.loggedIn=false;await assert.rejects(()=>vm.runInContext('ensureReviewWriteAccess(1327,core)',testcase.context),/登录 OJ/);
+  const expired=writeContext({storage:new Map([['accoding-modern.review-write.v2.123.1327',{token:'expired',contest_id:1327,reviewer_id:'oj-access-123',proof_protocol:'oj-review-write-proof-v2',expires:1}]])});
+  assert.equal(await vm.runInContext('ensureReviewWriteAccess(1327,core)',expired.context),'write-123');assert.equal(expired.calls.filter(call=>call.url.endsWith('/verify')).length,1);
+});
+test('write session invalidation removes only matching GM bearer and re-verifies once requested',async()=>{
+  const {context,calls,storage}=writeContext();await vm.runInContext('ensureReviewWriteAccess(1327,core)',context);
+  await vm.runInContext("invalidateReviewWriteAccess(1327,'other-session')",context);assert.ok(storage.get('accoding-modern.review-write.v2.123.1327'));
+  await vm.runInContext("invalidateReviewWriteAccess(1327,'write-123')",context);assert.equal(storage.get('accoding-modern.review-write.v2.123.1327'),null);
+  await vm.runInContext('ensureReviewWriteAccess(1327,core)',context);assert.equal(calls.filter(call=>call.url.endsWith('/verify')).length,2);
+});
+test('writer supports safe memory-only fallback and rejects unknown proof protocol before reading sources',async()=>{
+  const testcase=writeContext();delete testcase.context.GM_getValue;delete testcase.context.GM_setValue;
+  await vm.runInContext('ensureReviewWriteAccess(1327,core)',testcase.context);await vm.runInContext('ensureReviewWriteAccess(1327,core)',testcase.context);assert.equal(testcase.calls.filter(call=>call.url.endsWith('/verify')).length,1);
+  const invalid=writeContext({protocol:'old-proof'});await assert.rejects(()=>vm.runInContext('ensureReviewWriteAccess(1327,core)',invalid.context),/协议无效/);assert.equal(invalid.calls.filter(call=>call.url.startsWith('/submission')).length,0);
 });
 
-test('one valid proof or a failed combine retains the current contest scope',async()=>{
-  const single=unionContext({failIds:[2,3,4]});assert.equal(await vm.runInContext('expandReviewAccess(1,core)',single.context),'proof-1');assert.equal(single.calls.some(call=>call.url.endsWith('/combine')),false);
-  const failure=unionContext({combineFails:true});const tokens=await vm.runInContext('Promise.all([expandReviewAccess(1,core),expandReviewAccess(2,core)])',failure.context);assert.deepEqual([...tokens],['proof-1','proof-2']);
-  assert.equal(vm.runInContext('reviewAccessCoverage.get(1).combine_error',failure.context),true);
-});
-
-test('foreground access proves only this contest and never joins a slow background expansion',async()=>{
-  const {context,calls}=unionContext();
-  assert.equal(await vm.runInContext('ensureReviewAccess(1,core)',context),'proof-1');
-  assert.deepEqual(calls.filter(call=>call.url.endsWith('/challenge')).map(call=>call.body.contest_id),[1]);
-  const original=context.fetch;let release;const gate=new Promise(resolve=>{release=resolve;});
-  context.fetch=async(url,init)=>{if(url.endsWith('/challenge')&&JSON.parse(init.body).contest_id!==1)await gate;return original(url,init);};
-  const expansion=vm.runInContext('expandReviewAccess(1,core)',context);await new Promise(resolve=>setImmediate(resolve));
-  let settled=false;const foreground=vm.runInContext('ensureReviewAccess(1,core)',context).then(value=>{settled=true;return value;});
-  await new Promise(resolve=>setTimeout(resolve,15));assert.equal(settled,true,'a pending expansion cannot delay the current contest');assert.equal(await foreground,'proof-1');
-  release();assert.equal(await expansion,'combined');assert.equal(await vm.runInContext('ensureReviewAccess(1,core)',context),'combined');
-  assert.equal(calls.filter(call=>call.url.endsWith('/challenge')&&call.body.contest_id===1).length,1,'current proof is reused');
-});
-
-test('timing benchmark isolates optional cross-contest delay from foreground access',async()=>{
-  const run=async(expanded)=>{const {context}=unionContext(),original=context.fetch;context.fetch=async(url,init)=>{if(url.endsWith('/challenge'))await new Promise(resolve=>setTimeout(resolve,JSON.parse(init.body).contest_id===1?10:100));return original(url,init);};const start=performance.now();await vm.runInContext(expanded?'expandReviewAccess(1,core)':'ensureReviewAccess(1,core)',context);return performance.now()-start;};
-  const before=await run(true),after=await run(false);
-  assert.ok(before>=100);assert.ok(after<before/2,`before ${before.toFixed(1)} ms; after ${after.toFixed(1)} ms`);
-  console.log(`foreground access benchmark (synthetic): before ${before.toFixed(1)} ms, after ${after.toFixed(1)} ms`);
+test('write session lifetime is capped at eight hours and concurrent saves share one challenge',async()=>{
+  const testcase=writeContext({expires:Date.now()/1000+86400});
+  const values=await vm.runInContext('Promise.all([ensureReviewWriteAccess(1327,core),ensureReviewWriteAccess(1327,core)])',testcase.context);
+  assert.deepEqual([...values],['write-123','write-123']);assert.equal(testcase.calls.filter(call=>call.url.endsWith('/challenge')).length,1);
+  const saved=testcase.storage.get('accoding-modern.review-write.v2.123.1327');assert.ok(saved.expires<=Date.now()/1000+8*3600);assert.ok(saved.expires>Date.now()/1000+7.99*3600);
 });

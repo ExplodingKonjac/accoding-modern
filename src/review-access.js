@@ -1,5 +1,4 @@
-// Prove existing OJ source-read access without transferring login cookies.
-const reviewAccessSessions=new Map(),reviewAccessPending=new Map();
+// Resolve historical reviewer names; reading review data requires no credentials.
 const reviewProfileNames=new Map(),reviewProfilePending=new Map();
 function reviewAccount(doc){
   const allLinks=[...doc.querySelectorAll('a[href]')];
@@ -37,61 +36,51 @@ async function reviewHistoryName(record){
   if(!id||stored&&!/^OJ\s*用户\s*\d+$/.test(stored)&&stored!=='个人信息')return stored;
   return await reviewProfileName(id)||stored||`OJ 用户 ${id}`;
 }
-const reviewAccessUnions=new Map(),reviewAccessUnionPending=new Map(),reviewAccessCoverage=new Map();
-async function reviewAccessPost(path,body){
-  const response=await (typeof reviewFetch==='function'?reviewFetch:fetch)('https://muzermat.online:8443/oj-review-api/v4'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Review-State-Protocol':'2'},credentials:'omit',cache:'no-store',body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
-  const value=await response.json();if(!response.ok)throw new Error(value.detail||'OJ 权限验证失败，请刷新重试。');return value;
+// Write sessions are created lazily when saving. Reads never call these helpers.
+const reviewWriteProtocol='oj-review-write-proof-v2',reviewWriteSite='https://accoding.buaa.edu.cn:4000';
+const reviewWriteSessions=new Map(),reviewWritePending=new Map();
+const reviewWriteKey=(userId,cid)=>`accoding-modern.review-write.v2.${userId}.${cid}`;
+let reviewWriteActor='';
+const reviewWriteStorage=()=>typeof GM_getValue==='function'&&typeof GM_setValue==='function';
+const reviewWriteValid=(session,userId,cid)=>session?.proof_protocol===reviewWriteProtocol&&session.contest_id===cid&&session.reviewer_id==='oj-access-'+userId&&typeof session.token==='string'&&session.token.length>0&&Number.isFinite(session.expires)&&session.expires>Date.now()/1000+60;
+async function reviewWritePost(path,body){
+  const response=await (typeof reviewFetch==='function'?reviewFetch:fetch)('https://muzermat.online:8443/oj-review-api/v4/write-access/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Review-State-Protocol':'2'},credentials:'omit',cache:'no-store',body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
+  const value=await response.json();if(!response.ok){const error=new Error(value.detail||'保存身份验证失败，请重试。');error.httpStatus=response.status;throw error;}return value;
 }
-async function reviewCurrentAccount(){
-  let account=reviewAccount(document);
-  if(!account){const response=await fetch('/',{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)});if(response.ok)account=reviewAccount(new DOMParser().parseFromString(await response.text(),'text/html'));}
-  if(!account)throw new Error('请先登录 OJ 后刷新重试。');return account;
+async function reviewWriteAccount(){
+  // Read the current login at save time: a long-lived review tab can outlive an account switch.
+  const response=await fetch('/',{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)}),account=response.ok?reviewAccount(new DOMParser().parseFromString(await response.text(),'text/html')):null;
+  if(!account){reviewWriteSessions.clear();reviewWriteActor='';throw new Error('请先登录 OJ 后再保存。');}
+  if(reviewWriteActor&&reviewWriteActor!==account.userId)reviewWriteSessions.clear();reviewWriteActor=account.userId;
+  return account;
 }
-// A proof authenticates exactly one contest. This helper never calls the union workflow.
-async function ensureReviewContestProof(contestId,core,account){
-  const cid=Number(contestId),{userId}=account,key=userId+':'+cid,saved=reviewAccessSessions.get(key);
-  if(saved&&saved.expires>Date.now()/1000+60)return saved;
-  if(reviewAccessPending.has(key))return reviewAccessPending.get(key);
+async function invalidateReviewWriteAccess(contestId,token){
+  const cid=Number(contestId),userId=reviewWriteActor;if(!userId)return;
+  const key=reviewWriteKey(userId,cid),known=reviewWriteSessions.get(key);if(known&&known.token!==token)return;
+  reviewWriteSessions.delete(key);if(reviewWriteStorage())try{const saved=await GM_getValue(key,null);if(saved?.token===token)await GM_setValue(key,null);}catch{}
+}
+async function ensureReviewWriteAccess(contestId,core){
+  const cid=Number(contestId);if(!Number.isInteger(cid)||cid<1)throw new Error('保存比赛无效');
+  const account=await reviewWriteAccount(),userId=account.userId,key=reviewWriteKey(userId,cid);
+  let saved=reviewWriteSessions.get(key);if(!reviewWriteValid(saved,userId,cid)&&reviewWriteStorage())try{saved=await GM_getValue(key,null);}catch{}
+  if(reviewWriteActor!==userId)throw new Error('OJ 账号已变化，请重试保存。');
+  if(reviewWriteValid(saved,userId,cid)){reviewWriteSessions.set(key,saved);return saved.token;}
+  if(reviewWritePending.has(key))return reviewWritePending.get(key);
   const pending=(async()=>{
-    const hash=async value=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(v=>v.toString(16).padStart(2,'0')).join('');
     const displayName=account.name||await reviewProfileName(userId);if(!displayName)throw new Error('未能读取当前助教姓名，请刷新 OJ 后重试。');
-    const challenge=await reviewAccessPost('/access/challenge',{contest_id:cid,user_id:userId,display_name:displayName});
-    if(!Array.isArray(challenge.submission_ids)||challenge.submission_ids.length!==3||challenge.submission_ids.some(s=>!/^\d+$/.test(s)))throw new Error('权限验证数据无效。');
-    const answers=await Promise.all(challenge.submission_ids.map(async sid=>{
-      const response=await fetch('/submission/'+sid,{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)}),node=new DOMParser().parseFromString(await response.text(),'text/html').querySelector('pre code');
-      if(!response.ok||!node)throw new Error('当前 OJ 账号没有读取此比赛源码的权限。');
-      return Promise.all(core.sourceVariants(node.textContent,sid).slice(0,10).map(async code=>hash(challenge.nonce+':'+await hash(code))));
+    const challenge=await reviewWritePost('challenge',{contest_id:cid,user_id:userId,display_name:displayName});
+    if(challenge.protocol!==reviewWriteProtocol||challenge.normalization!=='newlines-lf-v1'||typeof challenge.nonce!=='string'||!challenge.nonce||!Array.isArray(challenge.submission_ids)||challenge.submission_ids.length!==3||challenge.submission_ids.some(id=>!/^\d+$/.test(String(id))))throw new Error('保存身份验证协议无效，请更新插件。');
+    const hash=async value=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(value=>value.toString(16).padStart(2,'0')).join('');
+    const answers=await Promise.all(challenge.submission_ids.map(async id=>{
+      const response=await fetch('/submission/'+id,{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)}),doc=new DOMParser().parseFromString(await response.text(),'text/html'),node=doc.querySelector('pre code');
+      if(!response.ok||!node)throw new Error('当前 OJ 账号没有保存本场结论所需的源码读取权限。');
+      return Promise.all([...new Set(core.sourceVariants(node.textContent,String(id)).map(code=>code.replace(/\r\n?/g,'\n')))].slice(0,10).map(async code=>hash(challenge.nonce+':'+await hash(reviewWriteProtocol+'\n'+code))));
     }));
-    const session=await reviewAccessPost('/access/verify',{challenge_id:challenge.challenge_id,answers});
-    if(session.contest_id!==cid||typeof session.token!=='string'||!Number.isFinite(session.expires))throw new Error('权限验证结果无效。');
-    reviewAccessSessions.set(key,session);return session;
-  })();reviewAccessPending.set(key,pending);try{return await pending;}finally{reviewAccessPending.delete(key);}
-}
-// The foreground path proves only the current contest. Broader history is optional.
-async function ensureReviewAccess(contestId,core){
-  const cid=Number(contestId),account=await reviewCurrentAccount(),proof=await ensureReviewContestProof(cid,core,account);
-  const union=[...reviewAccessUnions.entries()].filter(([key,value])=>key.startsWith(account.userId+':')&&value.expires>Date.now()/1000+60&&value.contest_ids.includes(cid)).map(([,value])=>value).sort((a,b)=>b.contest_ids.length-a.contest_ids.length)[0];
-  if(!reviewAccessCoverage.has(cid))reviewAccessCoverage.set(cid,{attempted_ids:[cid],verified_ids:union?.contest_ids||[cid],failed_ids:[]});
-  return union?.token||proof.token;
-}
-async function expandReviewAccess(contestId,core){
-  const cid=Number(contestId),account=await reviewCurrentAccount(),current=await ensureReviewContestProof(cid,core,account),sameCourse=core.courseContests?.(cid)||[],all=core.collectedContests?.()||sameCourse,group=[...(sameCourse.length?sameCourse:[{id:cid}]),...all.filter(item=>item.id!==cid&&!sameCourse.some(known=>known.id===item.id))];
-  if(group.length<2){reviewAccessCoverage.set(cid,{attempted_ids:[cid],verified_ids:[cid],failed_ids:[]});return current.token;}
-  const unionKey=account.userId+':'+group.map(item=>item.id).sort((a,b)=>a-b).join(',');
-  if(reviewAccessUnionPending.has(unionKey)){const union=await reviewAccessUnionPending.get(unionKey);return union?.contest_ids.includes(cid)?union.token:current.token;}
-  const pending=(async()=>{
-    const known=group.map(item=>item.id).filter(id=>reviewAccessSessions.get(account.userId+':'+id)?.expires>Date.now()/1000+60);
-    for(const item of group)reviewAccessCoverage.set(item.id,{attempted_ids:group.map(item=>item.id),verified_ids:known,failed_ids:[],pending:true});
-    const others=group.filter(item=>item.id!==cid),attempts=[],proofs=[current],failed=[];for(let offset=0;offset<others.length;offset+=3)attempts.push(...await Promise.allSettled(others.slice(offset,offset+3).map(item=>ensureReviewContestProof(item.id,core,account))));
-    attempts.forEach((result,index)=>{if(result.status==='fulfilled')proofs.push(result.value);else failed.push(others[index].id);});
-    const verified=proofs.map(proof=>proof.contest_id).sort((a,b)=>a-b),coverage={attempted_ids:group.map(item=>item.id),verified_ids:verified,failed_ids:failed};
-    for(const item of group)reviewAccessCoverage.set(item.id,coverage);
-    if(proofs.length<2)return null;
-    const signature=proofs.map(proof=>proof.token).sort().join('|'),saved=reviewAccessUnions.get(unionKey);
-    if(saved&&saved.signature===signature&&saved.expires>Date.now()/1000+60)return saved;
-    try{const session=await reviewAccessPost('/access/combine',{tokens:proofs.map(proof=>proof.token)});
-      if(typeof session.token!=='string'||!Number.isFinite(session.expires)||!Array.isArray(session.contest_ids)||session.contest_ids.length!==verified.length||session.contest_ids.some(id=>!verified.includes(id)))throw new Error('跨场权限合并结果无效。');
-      reviewAccessUnions.set(unionKey,{...session,signature});return session;
-    }catch{for(const item of group)reviewAccessCoverage.set(item.id,{attempted_ids:group.map(item=>item.id),verified_ids:[cid],failed_ids:group.filter(item=>item.id!==cid).map(item=>item.id),combine_error:true});return null;}
-  })();reviewAccessUnionPending.set(unionKey,pending);try{const union=await pending;return union?.contest_ids.includes(cid)?union.token:current.token;}finally{reviewAccessUnionPending.delete(unionKey);}
+    const session=await reviewWritePost('verify',{challenge_id:challenge.challenge_id,answers});
+    if(!reviewWriteValid(session,userId,cid))throw new Error('保存身份验证结果无效。');
+    if(reviewWriteActor!==userId)throw new Error('OJ 账号已变化，请重试保存。');
+    session.expires=Math.min(session.expires,Date.now()/1000+8*3600);reviewWriteSessions.set(key,session);
+    if(reviewWriteStorage())try{await GM_setValue(key,session);}catch{}
+    return session.token;
+  })();reviewWritePending.set(key,pending);try{return await pending;}finally{if(reviewWritePending.get(key)===pending)reviewWritePending.delete(key);}
 }

@@ -59,7 +59,7 @@ test('OJ metadata wrapper is removed only for the matching submission and frozen
   await assert.rejects(()=>core.sourceFromOj(header+code+'changed','99',featurePositive.code_hash),/哈希/);
 });
 
-test('v4 full class search requests all four statuses with a reviewer session',async()=>{
+test('v4 reads omit writer credentials and account/proof work',async()=>{
   const calls=[];
   const client=core.featureClient(()=>'session',async(url,options)=>{
     calls.push({url,options});
@@ -71,7 +71,7 @@ test('v4 full class search requests all four statuses with a reviewer session',a
   await client.search({run_id:'run-one',contest_id:1299,creator_ids:['11'],limit:30,review_queue_only:true});
   await client.detail('1','run-one');
   assert.equal(calls.length,4);
-  for(const {url,options} of calls){assert.match(url,/\/oj-review-api\/v4\//);assert.equal(options.headers.Authorization,'Bearer session');assert.equal(options.credentials,'omit');}
+  for(const {url,options} of calls){assert.match(url,/\/oj-review-api\/v4\//);assert.equal(options.headers.Authorization,undefined);assert.equal(options.credentials,'omit');}
   const searchBody=JSON.parse(calls.find(x=>x.url.endsWith('/search')).options.body);
   assert.equal(searchBody.include_all,true);
   assert.equal(searchBody.review_queue_only,true);
@@ -107,6 +107,13 @@ test('git-style line diff preserves both files and identifies unchanged lines',(
     assert.equal(rows.filter(r=>r.kind!=='add').map(r=>r.text).join('\n'),a);
     assert.equal(rows.filter(r=>r.kind!=='remove').map(r=>r.text).join('\n'),b);
   }
+});
+
+test('every v4 read omits bearer credentials even after authenticated writes',async()=>{
+  const calls=[],client=core.featureClient(()=>{throw Error('read must not inspect credentials');},async(url,opts)=>{calls.push({url,opts});return {ok:true,json:async()=>url.includes('/feedback/')?{latest:null,history:[]}:{} };},4);
+  await client.session();await client.profile('1',1299);await client.source('1','run-one');await client.feedback('1','a'.repeat(64),'run-one');await client.exportEvidence('run-one');await client.exportFeedback(1299);
+  assert.equal(calls.length,6);
+  for(const {url,opts} of calls){assert.equal(opts.headers.Authorization,undefined);assert.equal(opts.credentials,'omit');assert.doesNotMatch(url,/\/access\//);}
 });
 
 test('TA credentials authenticate feedback without changing the original rule schema',async()=>{
@@ -254,4 +261,18 @@ test('profile coverage distinguishes uncollected scope, pending rebuild and inap
   assert.equal(core.contestLabel(1299),'程序设计基础 C1');assert.equal(core.contestLabel(1304),'程序设计基础 E1');
   assert.equal(core.beijingTime('2026-10-16T08:10:48Z'),'2026-10-16 16:10:48');assert.equal(core.beijingTime('invalid'),'时间未提供');
   assert.equal(new Set(core.collectedContests().map(item=>item.id)).size,10);
+});
+
+test('explicit null scoped score never falls back to an old global rule score',()=>{
+  assert.deepEqual(core.scoreSummary({raw_score:null,rule_score:65,scoring:{raw_score:65,score:65},auxiliary_score:null}),{raw:null,adjusted:null});
+  assert.deepEqual(core.scoreSummary({raw_score:60,rule_score:65,auxiliary_score:60,needs_recompute:true,profile_scores_valid:true}),{raw:60,adjusted:60});
+});
+test('feedback-invalidated comparisons explain recomputation without changing independent scores',()=>{
+  const changed={submission_id:'1',code_hash:'a'.repeat(64),needs_recompute:true,recompute_reason:'baseline_feedback_changed',scope_explanation:'历史参考后来被人工改判，该比较需重新核查并重跑；其他独立证据仍有效'};
+  const snapshot={profile:{summary:{permission_projection:{needs_recompute_submissions:3}},evidence:[changed]}};
+  assert.deepEqual(core.profileRecompute(snapshot,changed),{count:3,current:changed.scope_explanation});
+  assert.deepEqual(core.profileRecompute(snapshot,{...changed,code_hash:'b'.repeat(64)}),{count:3,current:''});
+  assert.equal(core.recomputeNotice({scope_explanation:'ordinary unrelated text'}),'');
+  assert.match(core.recomputeNotice({scope_evidence_status:'baseline_feedback_changed'}),/重新核查并重跑/);
+  assert.equal(core.profileRecompute({profile:{evidence:[changed]}},changed).count,1);
 });
