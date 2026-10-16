@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.19.6
+// @version      1.20.0
 // @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @include      https://accoding-4000.e1.buaa.edu.cn/*
@@ -23,7 +23,7 @@
 
 (() => {
 'use strict';
-const ACCODING_MODERN_VERSION="1.19.6";
+const ACCODING_MODERN_VERSION="1.20.0";
 // Runtime URL compatibility for the direct site and BUAA VPN reverse proxy.
 // The VPN keeps the upstream app under /https-4000/<opaque-token>/, so absolute
 // root requests and pathname checks must be evaluated relative to that prefix.
@@ -1761,19 +1761,42 @@ function createAiReviewCore() {
   const api='https://muzermat.online:8443/oj-review-api/v2';
   const apiV4='https://muzermat.online:8443/oj-review-api/v4';
   const apiV3='https://muzermat.online:8443/oj-review-api/v3';
-  const featureLabels=['输入失败防护','讲解性注释','编号步骤','对答式注释','模板化说明','注释密集','生成回答残留','短时间大幅改写','短时间码风突变','注释表达特征','模型来源注释','代码结构大幅变化','跨题码风变化','罕见共同代码片段','罕见高级用法','长变量命名','函数与变量命名','快速过题'];
+  const featureLabels=['输入失败防护','讲解性注释','编号步骤','对答式注释','模板化说明','注释密集','生成回答残留','短时间大幅改写','短时间码风突变','注释表达特征','模型来源注释','代码结构大幅变化','跨题码风变化','罕见共同代码片段','罕见高级用法','快速过题','CE 使用非 C 语言语法','AC 后重复提交码风变化'];
   const selections={candidate:'候选复核',sample:'连续提交抽样',manual:'单独复核'};
   const states={paused:'已暂停',running:'正在复核',completed:'复核完成',completed_with_errors:'已结束，部分失败',failed:'运行失败'};
   const hash=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
-  const reviewStates={rule_unmatched:'规则未命中',rule_hit_unreviewed:'规则命中/未核查',reviewed_ai:'已核查为AI',reviewed_no_ai:'已核查为无AI'};
+  const humanLabels={ordinary:'无 AI',uncertain:'存疑',suspected:'有 AI'};
+  const reviewStates={rule_unmatched:'规则未命中',rule_hit_unreviewed:'规则命中/未核查',reviewed_no_ai:'已核查为无AI',reviewed_uncertain:'已核查为存疑',reviewed_ai:'已核查为AI'};
+  const legacyFeatureLabels=['长变量命名','函数与变量命名'];
+  function selectReviewRun(values,preferred='latest'){
+    const moment=run=>{const numeric=Number(run.created_at);return Number.isFinite(numeric)?numeric:(Date.parse(run.created_at)||0);};
+    const runs=[...values].sort((a,b)=>moment(b)-moment(a)||b.run_id.localeCompare(a.run_id));
+    const latest=runs.find(run=>run.publication_ready!==false)||null;
+    const explicit=preferred!=='latest'&&runs.some(run=>run.run_id===preferred);
+    return {runs,selected:explicit?runs.find(run=>run.run_id===preferred):latest,latest,explicit,pending:runs.filter(run=>run.publication_ready===false)};
+  }
+  function humanState(status){const state={ordinary:'reviewed_no_ai',uncertain:'reviewed_uncertain',suspected:'reviewed_ai'}[status];if(!state)throw new Error('人工结论格式无效，请升级插件或联系管理员。');return state;}
+  function validAnnotation(a){return a&&Object.hasOwn(humanLabels,a.status)&&Number.isInteger(a.id)&&a.id>0&&typeof a.reason==='string'&&!!a.reason.trim();}
+  function feedbackPacket(value){if(!value||!Array.isArray(value.history)||value.history.some(x=>!validAnnotation(x))||(value.latest!=null&&!validAnnotation(value.latest)))throw new Error('人工结论格式无效，请升级插件或联系管理员。');return value;}
+  function inReviewFilter(record,filter='queue',problemList=false){if(!Object.hasOwn(reviewStates,record.review_status))throw new Error('核查状态格式无效');return (problemList||filter==='all'||filter==='reviewed_no_ai'||record.review_status!=='reviewed_no_ai')&&(filter==='all'||filter==='queue'||filter===record.review_status);}
+  function scoreSummary(record){const score=record.scoring||record.scores||{},raw=record.raw_score??record.rule_score??score.raw_score??score.score??score.raw,adjusted=record.profile_scores_valid===false?null:Object.hasOwn(record,'auxiliary_score')?record.auxiliary_score:record.profile_adjusted_score??record.profile_score??score.auxiliary_score??score.profile_adjusted_score??score.adjusted_score??score.adjusted;return {raw:Number.isFinite(raw)?raw:null,adjusted:Number.isFinite(adjusted)?adjusted:null};}
+  function submissionUrl(id){if(!/^[1-9]\d*$/.test(String(id)))throw new Error('提交编号格式无效');return 'https://accoding.buaa.edu.cn:4000/submission/'+id;}
+  function exportTables(records,feedback=[]){
+    const newest=new Map();for(const item of feedback){if(!validAnnotation(item))throw new Error('导出反馈格式无效');const key=String(item.submission_id)+':'+item.code_hash,old=newest.get(key);if(!old||item.id>old.id)newest.set(key,item);}
+    const current=records.map(record=>{const saved=newest.get(String(record.submission_id)+':'+record.code_hash),annotation=saved&&(!record.annotation||saved.id>=record.annotation.id)?saved:record.annotation;const projected=annotation?{...record,annotation,review_status:humanState(annotation.status)}:record;return {...projected,source_url:submissionUrl(record.submission_id),score_summary:scoreSummary(record)};});
+    const counts=Object.fromEntries(Object.keys(reviewStates).map(key=>[key,0]));for(const record of current){if(!Object.hasOwn(counts,record.review_status))throw new Error('导出核查状态格式无效');counts[record.review_status]++;}
+    return {current_review:current,complete_evidence:current.map(record=>({submission_id:record.submission_id,code_hash:record.code_hash,evidence:record.evidence||[],context_references:record.context_references||[],history_hits:record.history_hits||[],previous_submission:record.previous_submission||null})),feedback_history:feedback,counts};
+  }
   function hasReviewRecord(r){
     if(!r||!Object.hasOwn(reviewStates,r.review_status))return false;
+    if(r.annotation&&(!validAnnotation(r.annotation)||humanState(r.annotation.status)!==r.review_status))return false;
+    if(r.review_status.startsWith('reviewed_')&&!validAnnotation(r.annotation))return false;
     if(r.decision_kind==='rule_feature_unretained')return hash(r.configuration_sha256)&&hash(r.code_hash)&&!!r.run_id&&r.review_status!=='rule_unmatched';
     if(r.decision_kind==='unflagged')return hash(r.configuration_sha256)&&hash(r.code_hash)&&!!r.run_id&&r.review_status!=='rule_hit_unreviewed';
     if(r.decision_kind==='human_review')return hasFeatureReview(r);
     return hasFeatureReview(r);
   }
-  function hasFeatureReview(r){const d=r?.result;if(r?.decision_kind==='human_review')return hash(r.configuration_sha256)&&hash(r.code_hash)&&typeof r.run_id==='string'&&!!r.run_id&&typeof d?.ai_suspected==='boolean'&&typeof d.reason==='string'&&Array.isArray(d.label)&&d.label.length===0&&Number.isInteger(r.annotation?.id);return ((r?.decision_kind==='rule_feature_candidate'&&typeof r.rule_version==='string'&&!!r.rule_version&&r.call_id===null)||(r?.decision_kind==='llm_feature_presence'&&(hash(r.model_digest)||(r.backend_kind==='remote_api'&&r.model_digest===null&&hash(r.execution_config_sha256)&&typeof r.requested_model==='string'))))&&hash(r.configuration_sha256)&&hash(r.code_hash)&&typeof r.run_id==='string'&&!!r.run_id&&d?.ai_suspected===true&&Object.keys(d).sort().join(',')==='ai_suspected,label,reason'&&typeof d.reason==='string'&&!!d.reason.trim()&&Array.isArray(d.label)&&d.label.length>0&&new Set(d.label).size===d.label.length&&d.label.every(x=>featureLabels.includes(x));}
+  function hasFeatureReview(r){const d=r?.result;if(r?.decision_kind==='human_review')return hash(r.configuration_sha256)&&hash(r.code_hash)&&typeof r.run_id==='string'&&!!r.run_id&&d===null&&validAnnotation(r.annotation)&&r.human_status===r.annotation.status;return ((r?.decision_kind==='rule_feature_candidate'&&typeof r.rule_version==='string'&&!!r.rule_version&&r.call_id===null)||(r?.decision_kind==='llm_feature_presence'&&(hash(r.model_digest)||(r.backend_kind==='remote_api'&&r.model_digest===null&&hash(r.execution_config_sha256)&&typeof r.requested_model==='string'))))&&hash(r.configuration_sha256)&&hash(r.code_hash)&&typeof r.run_id==='string'&&!!r.run_id&&d?.ai_suspected===true&&Object.keys(d).sort().join(',')==='ai_suspected,label,reason'&&typeof d.reason==='string'&&!!d.reason.trim()&&Array.isArray(d.label)&&d.label.length>0&&new Set(d.label).size===d.label.length&&d.label.every(x=>featureLabels.includes(x)||legacyFeatureLabels.includes(x));}
   async function verifySource(code,expected){if(typeof code!=='string'||!hash(expected))throw new Error('源码或校验摘要缺失');const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(code));const actual=[...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,'0')).join('');if(actual!==expected)throw new Error('源码哈希与核查时不一致，请打开 OJ 原提交人工核验。');return code;}
   function sourceVariants(text,id){
     const header=text.match(/^\/\*[\s\S]*?\*\//),candidates=[text];
@@ -1811,17 +1834,19 @@ function createAiReviewCore() {
   function featureClient(getToken,fetcher=fetch,version=3){
     async function request(path,body,signal,absent=false){
       const token=getToken().trim();if(version!==4&&!token)throw new Error('请先在复核设置中填写只读令牌。');
-      const res=await fetcher((version===4?apiV4:apiV3)+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},credentials:'omit',cache:'no-store',signal,body:body?JSON.stringify(body):undefined});
+      const res=await fetcher((version===4?apiV4:apiV3)+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(version===4?{'X-Review-State-Protocol':'2'}:{}),...(body?{'Content-Type':'application/json'}:{})},credentials:'omit',cache:'no-store',signal,body:body?JSON.stringify(body):undefined});
       if(res.status===404&&absent)return null;
       if(!res.ok){let body={};try{body=await res.json();}catch{}throw new Error(body.detail||`复核请求失败（HTTP ${res.status}）`);}
       return res.json();
     }
-    async function runs(path,signal,contest){const r=await request(path,null,signal);if(!Array.isArray(r.runs)||r.runs.some(x=>typeof x.run_id!=='string'||!hash(x.configuration_sha256)||(contest!==undefined&&x.contest_id!==Number(contest))))throw new Error('运行清单格式或比赛不一致');return r;}
+    async function runs(path,signal,contest){const r=await request(path,null,signal);if(!Array.isArray(r.runs)||r.runs.some(x=>typeof x.run_id!=='string'||(Object.hasOwn(x,'publication_ready')&&typeof x.publication_ready!=='boolean')||!hash(x.configuration_sha256)||(contest!==undefined&&x.contest_id!==Number(contest))))throw new Error('运行清单格式或比赛不一致');return r;}
     return {
       session:signal=>request('/feedback/session',null,signal),
+      profile:(creatorId,contestId,signal)=>request(`/profiles/${encodeURIComponent(creatorId)}?site=${encodeURIComponent('https://accoding.buaa.edu.cn:4000')}&contest_id=${encodeURIComponent(contestId)}`,null,signal),
       source:(id,runId,signal)=>request(`/runs/${encodeURIComponent(runId)}/sources/${encodeURIComponent(id)}`,null,signal),
-      feedback:(id,codeHash,runId,signal)=>request(`/feedback/${encodeURIComponent(id)}?code_hash=${encodeURIComponent(codeHash)}&run_id=${encodeURIComponent(runId)}`,null,signal),
-      saveFeedback:(body,signal)=>request('/feedback',body,signal),
+      feedback:async(id,codeHash,runId,signal)=>feedbackPacket(await request(`/feedback/${encodeURIComponent(id)}?code_hash=${encodeURIComponent(codeHash)}&run_id=${encodeURIComponent(runId)}`,null,signal)),
+      saveFeedback:(body,signal)=>{humanState(body.status);if(typeof body.reason!=='string'||!body.reason.trim())throw new Error('请填写核查理由');return request('/feedback',body,signal);},
+      exportEvidence:(runId,offset=0,signal)=>request(`/runs/${encodeURIComponent(runId)}/evidence/export?offset=${offset}&limit=200`,null,signal),
       exportFeedback:(contest,after=0,signal)=>request(`/contests/${encodeURIComponent(contest)}/feedback/export?after=${after}`,null,signal),
       progress:(contest,signal)=>runs(`/contests/${encodeURIComponent(contest)}/progress`,signal,contest),
       submissionRuns:(id,signal)=>runs(`/submissions/${encodeURIComponent(id)}/runs${version===4?'?include_candidates=true':''}`,signal),
@@ -1864,13 +1889,13 @@ function createAiReviewCore() {
     }
     solve(a,b,1,1);return output;
   }
-  return {reviewCursor,lineDiff,api,apiV3,apiV4,selections,states,reviewStates,featureLabels,members,hasFlaggedReview,hasFeatureReview,hasReviewRecord,verifySource,sourceVariants,sourceFromOj,client,featureClient};
+  return {selectReviewRun,humanLabels,humanState,feedbackPacket,inReviewFilter,scoreSummary,submissionUrl,exportTables,reviewCursor,lineDiff,api,apiV3,apiV4,selections,states,reviewStates,featureLabels,members,hasFlaggedReview,hasFeatureReview,hasReviewRecord,verifySource,sourceVariants,sourceFromOj,client,featureClient};
 }
 
 
 /** Read published scores, including the exact score saved in older rule records. */
 function aiReviewRuleScore(review) {
-  const score = review.scoring?.score;
+  const score = review.raw_score ?? review.rule_score ?? review.scoring?.raw_score ?? review.scoring?.score;
   if (Number.isInteger(score) && score >= 0 && score <= 100) return score;
   if (review.decision_kind === 'rule_feature_candidate') {
     const match = /(?:^|[\s；;])规则评分(100|[1-9]?\d)分（嫌疑阈值(?:100|[1-9]?\d)分）(?:[；;。]|$)/.exec(review.result?.reason || '');
@@ -1880,10 +1905,12 @@ function aiReviewRuleScore(review) {
 }
 
 /** Match the local review agent's suspect columns and append the latest TA verdict. */
-function createAiReviewExport(reviews, feedback, context) {
-  const states = {suspected: '已核查为AI', ordinary: '已核查为无AI'};
+function createAiReviewExport(reviews, feedback, context, completeEvidence=[]) {
+  const states = {suspected: '已核查为AI', ordinary: '已核查为无AI', uncertain: '已核查为存疑'};
+  const statusLabel = status => {if(status == null)return '未复核';if(!Object.hasOwn(states,status))throw new Error('人工结论格式无效');return states[status];};
   const feedbackKey = row => `${row.submission_id}:${row.code_hash}`;
   const latest = new Map();
+  for(const note of feedback)statusLabel(note.status);
   for (const note of feedback) {
     if (!note.code_hash) continue;
     const key = feedbackKey(note), prior = latest.get(key);
@@ -1902,12 +1929,16 @@ function createAiReviewExport(reviews, feedback, context) {
     const labels = [...new Set(scoring?.items?.map(item => item.label) || review.result?.label || review.labels || [])];
     const saved = latest.get(feedbackKey(review)), annotation = review.annotation;
     const note = saved && (!annotation || Number(saved.id) >= Number(annotation.id)) ? saved : annotation;
-    return [member.name, String(member.studentId), `${problem?.title || '题目'}（题目 ID：${review.problem_id}）`, String(review.submission_id), aiReviewRuleScore(review), labels.join('；') || '无规则命中', states[note?.status] || '未复核', note?.reason || ''];
+    return [member.name, String(member.studentId), `${problem?.title || '题目'}（题目 ID：${review.problem_id}）`, String(review.submission_id), aiReviewRuleScore(review), labels.join('；') || '无规则命中', statusLabel(note?.status), note?.reason || '', review.evaluation_result||review.judge_result||'', review.rule_version||'', review.profile_version||review.scoring?.profile_version||'', review.profile_stale||review.profile_scope_pending?'待更新':review.profile_scores_valid===false?'无可用画像':review.auxiliary_score??review.scoring?.auxiliary_score??'未评分', JSON.stringify(review.score_adjustments||review.scoring?.adjustments||[]), review.review_status||'未复核', `https://accoding.buaa.edu.cn:4000/submission/${review.submission_id}`, JSON.stringify(review.history_hits||[])];
   });
-  const history = feedback.map(note => [String(note.submission_id), states[note.status] || note.status || '', note.reason || '', note.reviewer_name || note.reviewer_id || '', note.created == null ? '' : new Date(note.created * 1000).toISOString(), String(note.id ?? ''), note.run_id || '', note.code_hash || '', (note.baseline?.result?.label || []).join('；'), note.baseline?.result?.reason || '']);
+  const history = feedback.map(note => [String(note.submission_id), statusLabel(note.status), note.reason || '', note.reviewer_name || note.reviewer_id || '', note.created == null ? '' : new Date(note.created * 1000).toISOString(), String(note.id ?? ''), note.run_id || '', note.code_hash || '', (note.baseline?.result?.label || []).join('；'), note.baseline?.result?.reason || '']);
+  const evidence = ordered.flatMap(review => {const refs=[...(review.evidence||[]).map(item=>({...item,role:'当前命中'})),...(review.context_references||[]),...(review.evidence_chain||[]),...(review.history_hits||[]),...(review.previous_submission?[{...review.previous_submission,role:'同题前版'}]:[])];return refs.map(item=>[String(review.submission_id),String(item.submission_id||review.submission_id),item.role||item.kind||'历史对照',item.evaluation_result||item.result||item.judge_result||'',item.result==='WA'?'历史对照':item.role||'',item.submitted_at||'',item.code_hash||review.code_hash||'',String(item.start_line??''),String(item.end_line??''),item.quote||item.explanation||JSON.stringify(item)]);});
+  for(const item of completeEvidence){const source=item.source||{};for(const note of item.feedback_history||[])statusLabel(note.status);evidence.push(['',String(source.submission_id),item.role==='history_comparison'?'历史对照':'完整命中历史',source.evaluation_result||'',item.role==='history_comparison'?'历史对照':(item.rule_hit?.labels||[]).join('；'),source.submitted_at||'',source.code_hash||'','','',JSON.stringify({rule_hit:item.rule_hit,record:item.record,feedback_history:item.feedback_history})]);}
+  const splitEvidence=[];for(const row of evidence){const text=String(row[9]||'');if(text.length<=30000){splitEvidence.push(row);continue;}let offset=0,part=0;while(offset<text.length){let end=Math.min(offset+30000,text.length);if(end<text.length&&/[\uD800-\uDBFF]/.test(text[end-1]))end--;splitEvidence.push([...row.slice(0,9),`[分片 ${++part}] `+text.slice(offset,end)]);offset=end;}}
   const content = createTextXlsx([
-    {name: '嫌疑名单', headers: ['姓名', '学号', '题目', '提交记录id', '规则匹配得分', '规则命中详情', '助教复核结果', '助教复核理由'], rows, widths: [14, 17, 43, 19, 19, 56, 20, 56]},
-    {name: '助教反馈历史', headers: ['提交记录id', '复核结论', '复核理由', '助教', '反馈时间（UTC）', '修订ID', '核查运行', '源码SHA-256', '原始规则特征', '原始规则理由'], rows: history, widths: [19, 20, 56, 20, 28, 14, 40, 68, 56, 56]}
+    {name: '嫌疑名单', headers: ['姓名', '学号', '题目', '提交记录id', '规则匹配得分', '规则命中详情', '助教复核结果', '助教复核理由', '评测结果', '规则版本', '画像版本', '画像辅助分', '分值调整与引用', '核查状态', '源码链接', '历史命中'], rows, widths: [14, 17, 43, 19, 19, 56, 20, 56, 16, 36, 32, 18, 60, 24, 64, 60]},
+    {name: '助教反馈历史', headers: ['提交记录id', '复核结论', '复核理由', '助教', '反馈时间（UTC）', '修订ID', '核查运行', '源码SHA-256', '原始规则特征', '原始规则理由'], rows: history, widths: [19, 20, 56, 20, 28, 14, 40, 68, 56, 56]},
+    {name:'完整证据与对照',headers:['代表提交','证据提交','关系','评测结果','用途','提交时间','源码SHA-256','起始行','结束行','证据原文'],rows:splitEvidence,widths:[19,19,24,16,20,28,68,12,12,80]}
   ]);
   const cleanName = value => String(value ?? '').normalize('NFKC').replace(/[\u0000-\u001f\u007f\\/:*?"<>|]/g, '_').trim().slice(0, 60) || '未命名';
   return {filename: `${cleanName(context.className)}-${cleanName(context.contest.title || context.contest.id)}-代码复核.xlsx`, blob: new Blob([content], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})};
@@ -1967,7 +1998,7 @@ async function ensureReviewAccess(contestId,core){
   if(reviewAccessPending.has(key))return reviewAccessPending.get(key);
   const pending=(async()=>{
     const api='https://muzermat.online:8443/oj-review-api/v4';
-    const post=async(path,body)=>{const r=await (typeof reviewFetch==='function'?reviewFetch:fetch)(api+path,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'omit',cache:'no-store',body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});const value=await r.json();if(!r.ok)throw new Error(value.detail||'OJ 权限验证失败，请刷新重试。');return value;};
+    const post=async(path,body)=>{const r=await (typeof reviewFetch==='function'?reviewFetch:fetch)(api+path,{method:'POST',headers:{'Content-Type':'application/json','X-Review-State-Protocol':'2'},credentials:'omit',cache:'no-store',body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});const value=await r.json();if(!r.ok)throw new Error(value.detail||'OJ 权限验证失败，请刷新重试。');return value;};
     const hash=async value=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(v=>v.toString(16).padStart(2,'0')).join('');
     const displayName=account.name||await reviewProfileName(userId);
     if(!displayName)throw new Error('未能读取当前助教姓名，请刷新 OJ 后重试。');
@@ -1990,7 +2021,7 @@ async function ensureReviewAccess(contestId,core){
 function createAiReviewPanel(container,core,getContext,_readMetadata,options={}) {
   const noteKey='accoding-modern.ai-review.notes.v1';
   let accessToken='';
-  let generation=0,controller=null,timer=null,rows=[],page=0,total=0,active=false,detailVersion=0,detailController=null,runs=[],runId='',scope=null,listDirty=false,listPosition=null;
+  let generation=0,controller=null,timer=null,rows=[],page=0,total=0,active=false,detailVersion=0,detailController=null,runs=[],runId='',counts=null,scope=null,listDirty=false,listPosition=null;
   let cursor=null,updateNavigation=()=>{},navigationBusy=false,saving=false;
   const getToken=()=>accessToken;
   const client=core.featureClient(getToken,typeof reviewFetch==='function'?reviewFetch:fetch,4),size=30;
@@ -1998,19 +2029,19 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   const button=(text,fn)=>{const b=el('button',text);b.type='button';b.onclick=fn;return b;};
   const refill=(s,values,keep=s.value)=>{s.replaceChildren();for(const [value,text] of values){const o=el('option',text);o.value=value;s.append(o);}if([...s.options].some(o=>o.value===keep))s.value=keep;};
   const select=(name,values)=>{const s=el('select');s.setAttribute('aria-label',name);refill(s,values);s.onchange=()=>{page=0;void reload();};return s;};
-  const labels={suspected:'已核查为AI',ordinary:'已核查为无AI'};
+  const labels=core.humanLabels;
   const stateNames=core.reviewStates;
   const problem=select('复核题目',[['all','全部题目']]);
   const feature=select('代码特征',[['all','全部特征'],...core.featureLabels.map(x=>[x,x])]);
-  const state=select('代码状态',options.problemList?[['all','全部代码状态'],...Object.entries(stateNames)]:[['queue','待复核与已判 AI'],['rule_hit_unreviewed','规则命中/未核查'],['reviewed_ai','已核查为AI']]);
+  const state=select('代码状态',options.problemList?[['all','全部代码状态'],...Object.entries(stateNames)]:[['queue','未核查、存疑与有 AI'],['rule_hit_unreviewed','规则命中/未核查'],['reviewed_uncertain','已核查为存疑'],['reviewed_ai','已核查为AI'],['all','全部代码状态'],['reviewed_no_ai','已核查为无AI']]);
+  const runHistory=select('核查运行',[['latest','最新完整运行']]);
   const heading=el('h2','代码复核');
   const message=el('p','读取比赛后，打开代码复核。');message.setAttribute('role','status');
   const progress=el('p');progress.setAttribute('aria-live','polite');
   const list=el('div');list.className='table-wrap';const pager=el('div');pager.className='pager';const detail=el('section');detail.className='panel';detail.hidden=true;
-  const style=el('style');style.textContent=`.ar-toolbar,.ar-actions,.ar-review-head,.ar-review-nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}.ar-toolbar select{min-width:140px;flex:1}.ar-actions button{min-height:38px}.ar-note{display:block;width:100%;min-height:100px;padding:12px;border:1px solid #ccd9e9;border-radius:8px;box-sizing:border-box;font:inherit}.ar-source{font:13px/1.65 ui-monospace,monospace;overflow:auto;max-height:540px;background:#f7f9fc;padding:12px;border:1px solid #dce3ed;border-radius:8px}.ar-history{border-left:3px solid #d7e3f7;padding:10px 14px;margin:12px 0}.ar-table td{white-space:normal;min-width:90px}.ar-table td:last-child{white-space:nowrap}.ar-review-page,.ar-student-page{position:fixed;inset:0;z-index:2147483002;overflow:auto;background:#eef3f9;padding:18px max(18px,calc((100vw - 1600px)/2));margin:0;border:0;border-radius:0;box-sizing:border-box}.ar-student-page{z-index:2147483003}.ar-review-page:has(.ar-student-page){overflow:hidden}.ar-current-submission{background:#e8f0ff}.ar-review-head{position:sticky;top:0;z-index:3;background:#fff;padding:10px 16px;border:1px solid #dfe7f0;border-radius:12px;justify-content:space-between}.ar-review-head h2{margin:0;font-size:19px}.ar-review-nav{margin:0}.ar-state{font-weight:700;border-radius:8px;padding:5px 12px;background:#e8f0ff;color:#3156a1}.ar-state[data-state=reviewed_ai]{background:#fff0e6;color:#a14718}.ar-state[data-state=reviewed_no_ai]{background:#e7f7ed;color:#216b3f}.ar-state[data-state=rule_unmatched]{background:#eef1f5;color:#526175}.ar-compare{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0;border:1px solid #dce3ed;border-radius:10px;overflow:hidden;background:#fff}.ar-compare-title{font-weight:700;padding:10px 14px;background:#f2f6fc;border-bottom:1px solid #dce3ed}.ar-compare-title:nth-child(2){border-left:1px solid #dce3ed}.ar-compare-row{display:contents}.ar-code-line{min-width:0;overflow:visible;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 ui-monospace,monospace;padding:0 10px;min-height:23px}.ar-code-line:nth-child(2n){border-left:1px solid #dce3ed}.ar-code-line.add{background:#dafbe1;color:#116329}.ar-code-line.remove{background:#ffebe9;color:#82071e}.ar-code-line .num{display:inline-block;min-width:3em;margin-right:10px;text-align:right;color:#8190a4;user-select:none}.ar-review-content{background:#fff;border:1px solid #dfe7f0;border-radius:12px;margin-top:12px;padding:18px}.ar-review-content>h3{margin-top:22px}@media(max-width:700px){.ar-toolbar>*{flex:1 1 150px}.ar-actions>*{flex:1}.ar-review-page{padding:8px}.ar-code-line{font-size:11px}}`;
-  const controls=el('div');controls.className='ar-toolbar';controls.append(problem,feature,state);
-  const exportButton=button('导出当前结果 XLSX',()=>void exportRows());
-  const actions=el('div');actions.className='ar-actions';actions.append(button('刷新云端结果',()=>void reload()),exportButton);
+  const style=el('style');style.textContent=`.ar-toolbar,.ar-actions,.ar-review-head,.ar-review-nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}.ar-toolbar select{min-width:140px;flex:1}.ar-actions button,.ar-review-nav button{min-height:44px}.ar-actions select{min-height:44px}.ar-review-page :is(button,select,textarea,a):focus-visible{outline:3px solid #3156a1;outline-offset:3px}.ar-profile dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 18px}.ar-profile dd{margin:0;overflow-wrap:anywhere}.ar-evidence-meta{overflow-wrap:anywhere}.ar-state[data-state=reviewed_uncertain]{background:#fff8d6;color:#735800}.ar-note{display:block;width:100%;min-height:100px;padding:12px;border:1px solid #ccd9e9;border-radius:8px;box-sizing:border-box;font:inherit}.ar-source{font:13px/1.65 ui-monospace,monospace;overflow:auto;max-height:540px;background:#f7f9fc;padding:12px;border:1px solid #dce3ed;border-radius:8px}.ar-history{border-left:3px solid #d7e3f7;padding:10px 14px;margin:12px 0}.ar-table td{white-space:normal;min-width:90px}.ar-table td:last-child{white-space:nowrap}.ar-review-page,.ar-student-page{position:fixed;inset:0;z-index:2147483002;overflow:auto;background:#eef3f9;padding:18px max(18px,calc((100vw - 1600px)/2));margin:0;border:0;border-radius:0;box-sizing:border-box}.ar-student-page{z-index:2147483003}.ar-review-page:has(.ar-student-page){overflow:hidden}.ar-current-submission{background:#e8f0ff}.ar-review-head{position:sticky;top:0;z-index:3;background:#fff;padding:10px 16px;border:1px solid #dfe7f0;border-radius:12px;justify-content:space-between}.ar-review-head h2{margin:0;font-size:19px}.ar-review-nav{margin:0}.ar-state{font-weight:700;border-radius:8px;padding:5px 12px;background:#e8f0ff;color:#3156a1}.ar-state[data-state=reviewed_ai]{background:#fff0e6;color:#a14718}.ar-state[data-state=reviewed_no_ai]{background:#e7f7ed;color:#216b3f}.ar-state[data-state=rule_unmatched]{background:#eef1f5;color:#526175}.ar-compare{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0;border:1px solid #dce3ed;border-radius:10px;overflow:hidden;background:#fff}.ar-compare-title{font-weight:700;padding:10px 14px;background:#f2f6fc;border-bottom:1px solid #dce3ed}.ar-compare-title:nth-child(2){border-left:1px solid #dce3ed}.ar-compare-row{display:contents}.ar-code-line{min-width:0;overflow:visible;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 ui-monospace,monospace;padding:0 10px;min-height:23px}.ar-code-line:nth-child(2n){border-left:1px solid #dce3ed}.ar-code-line.add{background:#dafbe1;color:#116329}.ar-code-line.remove{background:#ffebe9;color:#82071e}.ar-code-line .num{display:inline-block;min-width:3em;margin-right:10px;text-align:right;color:#8190a4;user-select:none}.ar-review-content{background:#fff;border:1px solid #dfe7f0;border-radius:12px;margin-top:12px;padding:18px}.ar-review-content>h3{margin-top:22px}.ar-review-content p{overflow-wrap:anywhere}@media(max-width:700px){.ar-toolbar>*{flex:1 1 150px}.ar-actions>*{flex:1}.ar-review-page{padding:8px}.ar-code-line{font-size:11px}}`;
+  const controls=el('div');controls.className='ar-toolbar';controls.append(problem,feature,state,runHistory);
+  const actions=el('div');actions.className='ar-actions';const exportButton=button('导出 XLSX',()=>void exportRows('xlsx')),jsonButton=button('导出 JSON',()=>void exportRows('json'));actions.append(button('刷新云端结果',()=>void reload()),exportButton,jsonButton);
   const sidInput=el('input');sidInput.placeholder='提交 ID';sidInput.inputMode='numeric';sidInput.type='number';sidInput.min='1';sidInput.autocomplete='off';sidInput.setAttribute('aria-label','复核提交 ID');
   actions.append(sidInput,button('查看提交',()=>{if(/^[1-9]\d*$/.test(sidInput.value.trim()))void openDetail(sidInput.value.trim());else message.textContent='请输入有效的提交 ID。';}));
   sidInput.hidden=true;actions.lastElementChild.hidden=true;
@@ -2021,23 +2052,24 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   function key(){return contextKey()+':v4:'+runId;}
   function reload(){return options.submissionId?openDetail(options.submissionId):refresh();}
   function stop(){cursor=null;updateNavigation=()=>{};generation++;controller?.abort();detailVersion++;detailController?.abort();clearTimeout(timer);}
-  function reset(){stop();scope=null;listDirty=false;listPosition=null;heading.textContent='代码复核';problem.disabled=false;rows=[];runs=[];total=page=0;runId='';detail.hidden=true;detail.replaceChildren();progress.textContent='';message.textContent='读取比赛后，打开代码复核。';draw();}
+  function reset(){stop();scope=null;listDirty=false;listPosition=null;heading.textContent='代码复核';problem.disabled=false;counts=null;rows=[];runs=[];total=page=0;runId='';refill(runHistory,[['latest','最新完整运行']]);detail.hidden=true;detail.replaceChildren();progress.textContent='';message.textContent='读取比赛后，打开代码复核。';draw();}
   function setProblemScope(next){stop();scope=next?{...next,submissionIds:[...next.submissionIds]}:null;page=0;state.value=options.problemList?'all':'queue';feature.value='all';problem.value=scope?.problemId||'all';problem.disabled=!!scope;heading.textContent=scope?`本题提交核查 · ${scope.title}`:'代码复核';detail.hidden=true;detail.replaceChildren();}
-  function query(c,offset=page*size,limit=size){return {contest_id:Number(c.contest.id),creator_ids:[...core.members(c.summary.rows).keys()],offset,limit,run_id:runId,...(scope?{problem_id:Number(scope.problemId),submission_ids:scope.submissionIds}:problem.value==='all'?{}:{problem_id:Number(problem.value)}),...(feature.value==='all'?{}:{label:feature.value}),...(options.problemList?{}:{review_queue_only:true}),...(state.value==='queue'||state.value==='all'?{}:{review_status:state.value})};}
-  function fillRuns(values){runs=[...values].sort((a,b)=>(Number(b.created_at)||0)-(Number(a.created_at)||0)||b.run_id.localeCompare(a.run_id));const latest=runs[0]?.run_id||'';if(latest!==runId)page=0;runId=latest;}
-  function showProgress(){progress.textContent='';}
+  function query(c,offset=page*size,limit=size){return {contest_id:Number(c.contest.id),creator_ids:[...core.members(c.summary.rows).keys()],offset,limit,run_id:runId,...(scope?{problem_id:Number(scope.problemId),submission_ids:scope.submissionIds}:problem.value==='all'?{}:{problem_id:Number(problem.value)}),...(feature.value==='all'?{}:{label:feature.value}),...(options.problemList||state.value==='all'||state.value==='reviewed_no_ai'?{}:{review_queue_only:true}),...(state.value==='queue'||state.value==='all'?{}:{review_status:state.value})};}
+  function fillRuns(values){const selection=core.selectReviewRun(values,runHistory.value);runs=selection.runs;const next=selection.selected?.run_id||'';if(next!==runId)page=0;runId=next;refill(runHistory,[['latest','最新完整运行'],...runs.map(run=>[run.run_id,`${run.publication_ready===false?'待同步 · ':'历史运行 · '}${run.run_id}`])],selection.explicit?runId:'latest');}
+  function selectedRun(){return runs.find(run=>run.run_id===runId);}
+  function showProgress(){const pending=runs.filter(run=>run.publication_ready===false),notice=selectedRun()?.publication_ready===false?'当前历史运行待同步：源码、规则或画像尚未完整发布。':pending.length?`${pending.length} 个运行待同步；默认使用最近一次完整发布结果。`:'';progress.textContent=[notice,counts?Object.entries(stateNames).map(([key,label])=>`${label} ${counts[key]||0}`).join(' · '):''].filter(Boolean).join(' ');}
   async function refresh(){
     stop();const v=generation,k=contextKey(),c=getContext();detail.hidden=true;detail.replaceChildren();
     if(!active||!c.contest||!c.summary){message.textContent='请先读取比赛和榜单。';return;}
     refill(problem,[['all','全部题目'],...c.contest.problems.map(p=>[String(p.id),`${p.label} · ${p.title}`])],scope?.problemId||problem.value);
     const current=new AbortController();controller=current;const timeout=setTimeout(()=>current.abort(),20000);
-    rows=[];total=0;draw();message.textContent='正在读取云端复核记录…';
+    counts=null;showProgress();rows=[];total=0;draw();message.textContent='正在读取云端复核记录…';
     try{
       const state=await client.progress(c.contest.id,current.signal);if(v!==generation||k!==contextKey())return;
-      fillRuns(state.runs);showProgress(runs[0]);if(!runId){message.textContent='尚无核查结果，请先在核查系统发布比赛。';return;}
+      fillRuns(state.runs);showProgress();if(!runId){message.textContent=runs.length?'新运行待同步，暂无完整发布结果。可从核查运行中查看同步中的历史。':'尚无核查结果，请先在核查系统发布比赛。';return;}
       accessToken=await ensureReviewAccess(c.contest.id,core);if(v!==generation||k!==contextKey())return;
       const requestKey=key(),result=await client.search(query(c),current.signal);if(v!==generation||requestKey!==key())return;
-      const memberMap=core.members(c.summary.rows);rows=result.reviews.map(r=>({...r,member:memberMap.get(String(r.creator_id))}));total=result.total;
+      const memberMap=core.members(c.summary.rows);rows=result.reviews.map(r=>({...r,member:memberMap.get(String(r.creator_id))}));total=result.total;counts=result.counts||null;showProgress();
       if(total&&page*size>=total){page=Math.floor((total-1)/size);void refresh();return;}
       message.textContent=scope?`${scope.attemptedUsers} 位尝试者按 AC 或最近两次尝试选出 ${scope.submissionIds.length} 条 · 当前显示 ${total} 条`:`${c.className} · ${total} 条`;draw();
     }catch(e){if(v===generation){rows=[];total=0;draw();message.textContent=e.name==='AbortError'?'读取超时，请刷新重试。':e.message;}}
@@ -2045,9 +2077,9 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   }
   function judgement(r){return stateNames[r.review_status]||'状态未知';}
   function draw(){
-    const top=list.scrollTop,left=list.scrollLeft,table=el('table');table.className='ar-table';const thead=el('thead'),head=el('tr');['提交','学生','题目','提交时间','代码状态','依据','详情'].forEach(t=>head.append(el('th',t)));thead.append(head);table.append(thead);
+    const top=list.scrollTop,left=list.scrollLeft,table=el('table');table.className='ar-table';const thead=el('thead'),head=el('tr');['提交','学生','题目','提交时间','评测','原始分 / 画像辅助分','代码状态','依据','详情'].forEach(t=>head.append(el('th',t)));thead.append(head);table.append(thead);
     const body=el('tbody');for(const r of rows){const p=getContext().contest?.problems.find(p=>String(p.id)===String(r.problem_id)),tr=el('tr');
-      for(const text of [r.submission_id,`${r.member?.name||r.creator_id} · ${r.member?.studentId||''}`,p?`${p.label} · ${p.title}`:r.problem_id,new Date(r.submitted_at).toLocaleString(),judgement(r),r.annotation?r.annotation.reason:(r.result?.label||r.labels||[]).join('；')])tr.append(el('td',text));
+      for(const text of [r.submission_id,`${r.member?.name||r.creator_id} · ${r.member?.studentId||''}`,p?`${p.label} · ${p.title}`:r.problem_id,new Date(r.submitted_at).toLocaleString(),r.evaluation_result||r.judge_result||r.verdict||r.oj_result||r.submission_result||'—',`${core.scoreSummary(r).raw??'—'} / ${r.profile_stale||r.profile_scope_pending?'待更新':r.profile_scores_valid===false?'无可用画像':core.scoreSummary(r).adjusted??'—'}`,judgement(r),r.annotation?r.annotation.reason:(r.result?.label||r.labels||[]).join('；')])tr.append(el('td',text));
       const td=el('td');td.append(button('查看 / 修改',()=>void openDetail(r.submission_id)));tr.append(td);body.append(tr);}
     table.append(body);list.replaceChildren(table);list.scrollTop=top;list.scrollLeft=left;pager.replaceChildren(el('span',`共 ${total} 条 · ${page+1} / ${Math.max(1,Math.ceil(total/size))}`));
     const previous=button('上一页',()=>{page--;void refresh();}),next=button('下一页',()=>{page++;void refresh();});previous.disabled=page<=0;next.disabled=(page+1)*size>=total;pager.append(previous,next);
@@ -2071,8 +2103,8 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
     const c=new AbortController(),timeout=setTimeout(()=>c.abort(),20000);detailController=c;
     const valid=()=>n===detailVersion&&base===contextKey();
     try{
-      if(options.submissionId||!runId){const state=await client.submissionRuns(String(id),c.signal);if(!valid())return;fillRuns(state.runs);showProgress(runs[0]);}
-      if(runId){accessToken=await ensureReviewAccess(runs[0].contest_id,core);if(!valid())return;}
+      if(options.submissionId||!runId){const state=await client.submissionRuns(String(id),c.signal);if(!valid())return;fillRuns(state.runs);showProgress();}
+      if(runId){accessToken=await ensureReviewAccess(selectedRun().contest_id,core);if(!valid())return;}
       let r=runId?await client.detail(String(id),runId,c.signal):null;if(!valid())return;
       if(!r&&runId&&getToken()){const source=await client.source(String(id),runId,c.signal);r={...source,run_id:runId,decision_kind:'unflagged',review_status:'rule_unmatched',result:{label:[],reason:'规则未命中；可人工复核并填写理由。'},evidence:[],code:await readOj(id,source.code_hash,c.signal)};}
       if(!valid())return;
@@ -2081,38 +2113,41 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
       if(r&&!options.submissionId){const ctx=getContext();if(r.contest_id!==Number(ctx.contest.id)||!core.members(ctx.summary.rows).has(String(r.creator_id)))throw Error('详情与当前班级不一致');}
       if(options.feedbackOnly){
         detail.replaceChildren();
-        if(!r){detail.append(el('p','此提交尚未纳入云端源码清单，暂时无法保存 AI 判定。'));return;}
+        if(selectedRun()?.publication_ready===false)detail.append(el('p','历史运行待同步：当前资料尚未完整发布。'));
+        if(!r){detail.append(el('p',runs.some(run=>run.publication_ready===false)?'新运行待同步，当前完整版本中尚无此提交。':'此提交尚未纳入云端源码清单，暂时无法保存 AI 判定。'));return;}
         r.code=await core.sourceFromOj(options.ojText,id,r.code_hash);if(!valid())return;
         const label=el('p',judgement(r));label.dataset.reviewJudgement='1';label.className='ar-verdict';
-        const reason=el('p',r.annotation?.reason||r.result.reason);reason.dataset.reviewReason='1';detail.append(label,reason);
+        const reason=el('p',r.annotation?.reason||r.result?.reason||'规则未命中');reason.dataset.reviewReason='1';detail.append(label,reason);
         if(r.evidence?.length){const evidence=el('details');evidence.append(el('summary','查看规则依据'));for(const e of r.evidence)evidence.append(el('h4',`第 ${e.start_line}–${e.end_line} 行`),pre(e.quote));detail.append(evidence);}
         await feedbackEditor(r,c.signal,valid);return;
       }
       const close=button('返回列表',()=>void closeDetail(c));
       const head=el('div');head.className='ar-review-head';const title=el('h2',`代码复核 · 提交 #${id}`),nav=el('div');nav.className='ar-review-nav';
       const badge=el('span',r?judgement(r):'状态未知');badge.className='ar-state';badge.dataset.state=r?.review_status||'';badge.dataset.reviewJudgement='1';
-      const previous=button('上一页',()=>void turn(-1,id)),next=button('下一页',()=>void turn(1,id));
+      const previous=button('上一份',()=>void turn(-1,id)),next=button('下一份',()=>void turn(1,id));
       updateNavigation=()=>{previous.disabled=saving||navigationBusy||!cursor?.has(id,-1);next.disabled=saving||navigationBusy||!cursor?.has(id,1);};updateNavigation();
       nav.append(previous,next);if(r&&options.loadContestSubmissions)nav.append(button('查看该同学本次比赛提交',()=>void showContestSubmissions(r,valid)));nav.append(badge,close);head.append(title,nav);detail.replaceChildren(head);
-      if(!r){detail.append(el('p','尚无可用结果。请先在核查系统同步此比赛的源码清单。'));return;}
-      const content=el('div');content.className='ar-review-content';detail.append(content);
+      if(!r){detail.append(el('p',runs.some(run=>run.publication_ready===false)?'新运行待同步，当前完整版本中尚无此提交。':'尚无可用结果。请先在核查系统同步此比赛的源码清单。'));return;}
+      const content=el('div');content.className='ar-review-content';detail.append(content);if(selectedRun()?.publication_ready===false)content.append(el('p','历史运行待同步：当前资料尚未完整发布，请以最近一次完整结果为准。'));
       const member=getContext().summary?core.members(getContext().summary.rows).get(String(r.creator_id)):null;
       const problemName=pid=>{const p=getContext().contest?.problems.find(item=>String(item.id)===String(pid));return p?`${p.label} · ${p.title}`:`题目 ${pid}`;};
       const meta=el('p',`用户 ${member?.name||r.creator_id} · ${problemName(r.problem_id)} · ${new Date(r.submitted_at).toLocaleString()}`);
-      content.append(meta,el('p','原始依据：'+(r.result?.reason||'无')),el('p','原始特征：'+((r.result?.label||[]).join('；')||'无')));
+      content.append(meta,el('p',`评测结果：${r.evaluation_result||r.judge_result||r.verdict||r.oj_result||r.submission_result||'未提供'} · 规则版本：${r.rule_version||'历史运行'}`),el('p','命中事实：'+(r.result?.reason||'无')),el('p','规则特征：'+((r.result?.label||[]).join('；')||'无')));
+      renderRuleFacts(content,r);renderScores(content,r);await renderProfile(content,r,c.signal,valid);if(!valid())return;renderEvidenceChain(content,r);
       const compare=el('section');content.append(compare);
       const snapshots=[];
-      if((r.result?.label||r.labels||[]).includes('跨题码风变化')){
+      if(r.context_references?.length){
         for(const ref of r.context_references||[]){
           if(String(ref.submission_id)===String(id))continue;
           try{const source=await client.source(ref.submission_id,r.run_id,c.signal);if(!valid())return;
-            if(String(source.creator_id)===String(r.creator_id)&&String(source.problem_id)!==String(r.problem_id)&&source.code_hash===ref.code_hash)
-              snapshots.push({id:ref.submission_id,hash:ref.code_hash,problemId:source.problem_id,kind:'cross'});
-          }catch(e){if(!valid())return;compare.append(el('p',`跨题对照 #${ref.submission_id} 的题目信息读取失败：${e.message}`));}
+            if(String(source.creator_id)===String(r.creator_id)&&source.code_hash===ref.code_hash)
+              snapshots.push({id:ref.submission_id,hash:ref.code_hash,problemId:source.problem_id,kind:String(source.problem_id)!==String(r.problem_id)?'cross':((r.result?.label||[]).includes('AC 后重复提交码风变化')?'early_ac':'previous'),result:source.evaluation_result,submittedAt:source.submitted_at});
+          }catch(e){if(!valid())return;compare.append(el('p',`历史对照 #${ref.submission_id} 的题目信息读取失败：${e.message}`));}
         }
       }
+      for(const ref of [...(r.history_hits||[]),...(r.prior_accepted_submissions||[]),...(r.baseline_references||[]),...(r.evidence_chain||[])]){if(ref.submission_id&&ref.code_hash&&String(ref.submission_id)!==String(id)&&!snapshots.some(item=>String(item.id)===String(ref.submission_id)))snapshots.push({id:ref.submission_id,hash:ref.code_hash,problemId:ref.problem_id||r.problem_id,kind:ref.role||ref.kind||'history',result:ref.judge_result||ref.result,submittedAt:ref.submitted_at});}
       const prior=r.previous_submission;
-      if(prior&&!snapshots.some(item=>String(item.id)===String(prior.submission_id)))snapshots.push({id:prior.submission_id,hash:prior.code_hash,problemId:prior.problem_id,kind:'previous'});
+      if(prior&&!snapshots.some(item=>String(item.id)===String(prior.submission_id)))snapshots.push({id:prior.submission_id,hash:prior.code_hash,problemId:prior.problem_id,kind:'previous',result:prior.result||prior.judge_result,submittedAt:prior.submitted_at});
       if(!snapshots.length)compare.append(comparison(null,r.code,null,id));
       else{
         const nav=el('div');nav.className='ar-review-nav';const view=el('div'),position=el('span');let snapshotPage=0,snapshotVersion=0;
@@ -2121,19 +2156,61 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
         async function showSnapshot(nextPage){if(nextPage<0||nextPage>=snapshots.length)return;snapshotPage=nextPage;const version=++snapshotVersion,item=snapshots[nextPage];
           backward.disabled=nextPage===0;forward.disabled=nextPage===snapshots.length-1;
           position.textContent=`右侧快照 ${nextPage+1} / ${snapshots.length}`;
-          const label=item.kind==='cross'?`跨题码风对照 · ${problemName(item.problemId)} · 提交 #${item.id}`:`同题上次提交 · ${problemName(item.problemId)} · 提交 #${item.id}`;
+          const roleNames={cross:'跨题码风对照',previous:'同题上次提交',history:'较早命中',prior_ac:'前一份 AC',baseline:'稳定基线',early_ac:'早期 AC'};const label=`${roleNames[item.kind]||item.kind} · ${problemName(item.problemId)} · 提交 #${item.id}${item.result?' · '+item.result:''}`;
           view.replaceChildren(el('p',`正在读取${label}…`));
           try{const before=await readOj(item.id,item.hash,c.signal);if(!valid()||version!==snapshotVersion)return;
-            view.replaceChildren(comparison(before,r.code,item.id,id,{diff:item.kind==='previous',rightTitle:label}));
+            view.replaceChildren(el('p',`${item.submittedAt?new Date(item.submittedAt).toLocaleString()+' · ':''}源码 SHA-256：${item.hash}`),comparison(before,r.code,item.id,id,{diff:item.kind!=='cross',rightTitle:label}));
           }catch(e){if(!valid()||version!==snapshotVersion)return;view.replaceChildren(el('p',`${label}读取失败：${e.message}`),comparison(null,r.code,null,id,{rightTitle:label}));}
         }
         await showSnapshot(0);if(!valid())return;
       }
-      for(const e of r.evidence||[])content.append(el('h3',`规则证据 · 第 ${e.start_line}–${e.end_line} 行`),pre(e.quote));
+      for(const e of r.evidence||[])content.append(el('h3',`规则证据${e.start_line?` · 第 ${e.start_line}–${e.end_line||e.start_line} 行`:''}`),pre(e.quote||JSON.stringify(e,null,2)));
+      if(r.parse_status&&r.parse_status!=='ok')content.append(el('p','解析状态：'+r.parse_status+'；差异估计可能不可靠，请核对原始源码。'));
+      if(r.formatting_only)content.append(el('p','内容未变，单题码风未命中。'));
       content.append(el('p',`源码校验：${r.code_hash}`));
       await feedbackEditor(r,c.signal,valid);
       if(valid())detail.scrollTop=0;
     }catch(e){if(valid()){const error=el('p',e.name==='AbortError'?'读取超时，请重试。':e.message);if(options.feedbackOnly)detail.replaceChildren(error);else detail.replaceChildren(button('返回列表',()=>void closeDetail(c)),error);}}finally{clearTimeout(timeout);}
+  }
+  function sourceLink(id,text){const a=el('a',text||`提交 #${id}`);a.href=core.submissionUrl(id);a.target='_blank';a.rel='noopener noreferrer';return a;}
+  function renderRuleFacts(target,r){
+    const fact=r.rule_metadata;if(!fact)return;const box=el('section');box.append(el('h3','命中事实与历史解释'));
+    if(fact.change){const change=fact.change;box.append(el('p',`${change.difference_reliable===false?'不可靠的差异估计':'可执行代码差异'}：${((change.change_ratio||0)*100).toFixed(1)}%，增加 ${change.added_tokens??0}、删除 ${change.removed_tokens??0} 个 token；前版 ${change.previous_tokens??0}、当前 ${change.current_tokens??0} 个 token，间隔 ${change.seconds_between??'—'} 秒。`));}
+    if(fact.style?.pure_formatting||fact.style_change?.pure_formatting||fact.style_signals?.pure_formatting||fact.pure_formatting)box.append(el('p','内容未变，单题码风未命中。'));
+    if(fact.non_c_language?.candidate)box.append(el('p','CE：非 C 语法直接命中。请结合具体语法和来源作人工结论。'));
+    if(fact.quick_pass){const quick=fact.quick_pass;box.append(el('p',`通过间隔 ${quick.seconds_between??quick.gap_seconds??'未提供'} 秒 · 本题首次尝试 ${quick.first_attempt_at||'未提供'} · 已记录准备 ${quick.preparation_seconds??'未提供'} 秒`));for(const attempt of quick.attempt_timeline||[]){const row=el('p');row.append(sourceLink(attempt.submission_id),` · ${attempt.verdict} · ${attempt.created_at}`);box.append(row);}if(quick.limitation)box.append(el('p',quick.limitation));}
+    if(fact.profile_baseline){const base=fact.profile_baseline;box.append(el('p',`本份代码评估时基线：${base.sufficient?'样本充分':'样本不足'} · ${base.sample_count??0} 份更早代码，覆盖 ${base.problem_count??0} 题`));for(const ref of base.samples||[]){const row=el('p');row.append('更早样本：',sourceLink(ref.submission_id),` · ${ref.submitted_at||ref.created_at||''}`);box.append(row);}}
+    const repeated=fact.repeated_ac;if(repeated){box.append(el('h4','AC 后重复提交时间线'),el('p',repeated.explanation));for(const match of repeated.matches||[]){const row=el('p');row.append(sourceLink(match.earlier_submission_id),` · 早期 AC ${match.earlier_created_at||''} → 当前 AC #${r.submission_id} · ${match.kind==='trace_cleanup'?'清理早期命中痕迹':'向历史风格回归'}`);box.append(row);for(const removed of match.removed_evidence||[])box.append(pre(typeof removed==='string'?removed:JSON.stringify(removed,null,2)));for(const ref of match.historical_style?.baseline_samples||[]){const sample=el('p');sample.append('基线：',sourceLink(ref.submission_id),` · 比赛 ${ref.contest_id} · ${ref.created_at}`);box.append(sample);}}}
+    box.append(el('p','来源待人工核实；辅助分值只用于解释和排序。'));target.append(box);
+  }
+  function renderScores(target,r){
+    const score=core.scoreSummary(r),box=el('section');const summary=el('p',`原始分 ${score.raw??'未提供'} · 画像辅助分 ${r.profile_stale||r.profile_scope_pending?'待更新':r.profile_scores_valid===false?'无可用画像':score.adjusted??'未提供'} · 画像版本 ${r.profile_version||r.scoring?.profile_version||'未提供'}`);summary.dataset.scoreSummary='1';box.append(el('h3','辅助分值'),summary);
+    for(const item of r.score_adjustments||r.scoring?.adjustments||[]){const row=el('p',`${item.explanation||item.kind||'调整'}：${item.applied_points??item.points??0} 分`);for(const ref of item.references||[])if(ref.submission_id)row.append(' · ',sourceLink(ref.submission_id));box.append(row);}target.append(box);
+  }
+  async function renderProfile(target,r,signal,valid){
+    const box=el('section');box.className='ar-profile';box.append(el('h3','成员长期画像'));target.append(box);
+    try{const snapshot=await client.profile(r.creator_id,r.contest_id,signal);if(!valid())return;const status=el('p');status.dataset.profileStatus='1';box.append(status);
+      if(!snapshot.profile){status.textContent=snapshot.reason||'暂无可用画像；历史覆盖不足。';return;}
+      if(String(snapshot.profile.creator_id)!==String(r.creator_id))throw new Error('画像成员与当前代码不一致');
+      status.textContent=`${snapshot.stale?'待更新':snapshot.status==='current'?'已同步':'更新中'} · 截止 ${snapshot.cutoff||'未提供'} · 反馈水位 ${snapshot.feedback_revision??'未提供'}`;
+      const dl=el('dl');for(const [key,value] of [['画像版本',snapshot.version||snapshot.protocol],['快照',snapshot.snapshot_id],['授权比赛',snapshot.scope_contest_ids?.join('、')],['权限覆盖',snapshot.permission_coverage==='full'?'完整':'部分'],['分值状态',snapshot.scores_valid?'有效':'待重算']]){dl.append(el('dt',key),el('dd',value??'未提供'));}box.append(dl);
+      if(!snapshot.scores_valid){const score=target.querySelector('[data-score-summary]');if(score)score.append(' · 画像分值待重算，以上为旧快照');}
+      const summary=snapshot.profile.summary||{},coverage=summary.coverage||{},base=summary.baseline||{};
+      box.append(el('p',`已采集 ${coverage.contest_ids?.length??coverage.contests??0} 场 · ${coverage.source_count??coverage.submissions??0} 份源码 · 解析失败 ${coverage.parse_failed??0} 份`));
+      if(coverage.first_seen||coverage.last_seen)box.append(el('p',`历史范围：${coverage.first_seen||'未提供'} 至 ${coverage.last_seen||'未提供'}`));
+      if(coverage.unknown_teaching_source)box.append(el('p','教学来源未核实。'));
+      const baselineNames={confirmed:'已由人工确认',provisional:'暂定，尚未充分人工确认',insufficient:'样本不足'};
+      box.append(el('p',`长期画像最新基线：${baselineNames[base.status]||'未提供'} · ${base.sample_count??0} 份代码，覆盖 ${base.problem_count??0} 题${base.limitation?' · '+base.limitation:''}`));
+      const sampleBox=el('details');sampleBox.append(el('summary','稳定基线样本'));for(const ref of base.samples||[]){const row=el('p');row.append(sourceLink(ref.submission_id),` · 比赛 ${ref.contest_id} · ${ref.submitted_at||ref.created_at||''}`);sampleBox.append(row);}box.append(sampleBox);
+      for(const [kind,habit] of Object.entries(summary.habits||{})){const group=el('details');group.append(el('summary',`${kind==='input_guard'?'输入失败防护':kind==='comment'?'注释习惯':kind}：${habit.present??0} / ${habit.applicable??0} 份适用样本`));group.append(el('p',`覆盖 ${habit.problem_count??0} 题、${habit.contest_count??0} 场 · 首见 ${habit.first_seen||'无'} · 最近 ${habit.last_seen||'无'}`));for(const ref of habit.samples||[])group.append(sourceLink(ref.submission_id),' ');box.append(group);}
+      const distribution=el('details');distribution.append(el('summary','各场命中与人工结论'));for(const [cid,item] of Object.entries(summary.distribution||{})){const human=item.human_counts||{},score=summary.member_score?.[cid];distribution.append(el('p',`比赛 ${cid}：${item.source_count??0} 份源码，${item.hit_problems??0} 题命中，WA 历史对照 ${item.wa_history??0} 份；无 AI ${human.ordinary??0}、存疑 ${human.uncertain??0}、有 AI ${human.suspected??0}${snapshot.scores_valid&&score?.score!=null?'；成员辅助分 '+score.score:''}`));}box.append(distribution);
+      const refs=el('details');refs.append(el('summary','画像证据索引'));for(const ref of snapshot.profile.evidence||[]){const row=el('p');if(ref.submission_id)row.append(sourceLink(ref.submission_id));row.append(` · 比赛 ${ref.contest_id||'—'} · ${ref.result||ref.evaluation_result||'—'} · ${ref.submitted_at||ref.created_at||''}${ref.annotation?' · '+labels[ref.annotation.status]:''}`);refs.append(row);}box.append(refs);
+    }catch(e){if(valid())box.append(el('p','画像读取失败：'+e.message));}
+  }
+  function renderEvidenceChain(target,r){
+    const records=[...(r.evidence_chain||[]),...(r.history_hits||[]),...(r.prior_accepted_submissions||[]),...(r.baseline_references||[])];
+    if(!records.length)return;const box=el('details');box.append(el('summary','同题命中与 AC 提交时间线'));
+    for(const ref of records){const row=el('p');if(ref.submission_id)row.append(sourceLink(ref.submission_id));row.append(` · ${ref.judge_result||ref.result||ref.evaluation_result||'历史对照'} · ${ref.submitted_at||''} · ${ref.role||ref.kind||'历史命中'}`);if(ref.code_hash){const hash=el('small',' · SHA-256 '+ref.code_hash);hash.className='ar-evidence-meta';row.append(hash);}if(ref.annotation)row.append(' · '+labels[ref.annotation.status]);box.append(row);}target.append(box);
   }
   async function closeDetail(controller){detailVersion++;controller.abort();detail.hidden=true;detail.replaceChildren();if(listDirty){listDirty=false;await refresh();}if(listPosition){list.scrollTop=listPosition.listTop;list.scrollLeft=listPosition.listLeft;const overlay=container.closest('.problem-review-page')||container.closest('.overlay');if(overlay)overlay.scrollTop=listPosition.overlayTop;listPosition=null;}}
   async function turn(direction,id){
@@ -2164,7 +2241,7 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
         ['提交','题目','结果','得分','语言','提交时间','代码'].forEach(t=>titles.append(el('th',t)));head.append(titles);table.append(head);const body=el('tbody');
         for(const s of filtered.slice(currentPage*30,currentPage*30+30)){const row=el('tr'),problem=ctx.contest.problems.find(p=>String(p.id)===String(s.problem_id));if(String(s.id)===String(r.submission_id))row.className='ar-current-submission';
           [String(s.id)===String(r.submission_id)?`${s.id}（当前核查）`:s.id,problem?`${problem.label} · ${problem.title}`:s.problem_id,s.result||'待评测',s.score??'—',s.lang||'—',new Date(s.created_at).toLocaleString()].forEach(t=>row.append(el('td',t)));
-          const cell=el('td');if(/^[1-9]\d*$/.test(String(s.id))){const link=el('a','查看代码');link.href=accodingPath(`/submission/${s.id}`);link.target='_blank';link.rel='noopener noreferrer';cell.append(link);}row.append(cell);body.append(row);
+          const cell=el('td');if(/^[1-9]\d*$/.test(String(s.id))){const link=el('a','查看代码');link.href=core.submissionUrl(s.id);link.target='_blank';link.rel='noopener noreferrer';cell.append(link);}row.append(cell);body.append(row);
         }
         table.append(body);list.replaceChildren(table);const previous=button('上一页',()=>{currentPage--;drawSubmissions();}),next=button('下一页',()=>{currentPage++;drawSubmissions();});previous.disabled=currentPage===0;next.disabled=(currentPage+1)*30>=filtered.length;pager.replaceChildren(el('span',`共 ${filtered.length} 条 · ${currentPage+1} / ${Math.max(1,Math.ceil(filtered.length/30))}`),previous,next);
       }
@@ -2172,27 +2249,25 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
     }catch(e){if(valid()&&panel.isConnected)content.replaceChildren(el('p','提交读取失败：'+e.message),button('重试',()=>{panel.remove();void showContestSubmissions(r,valid);}));}
   }
   async function feedbackEditor(r,signal,valid){
-    let history=await client.feedback(r.submission_id,r.code_hash,r.run_id,signal);if(!valid())return;
-    const mark=el('select');mark.setAttribute('aria-label','人工复核结论');refill(mark,Object.entries(labels));
+    let history=await client.feedback(r.submission_id,r.code_hash,r.run_id,signal);const capability=await client.session(signal);if(!valid())return;const supportsUncertain=capability.review_state_protocol>=2&&(capability.human_statuses||capability.manual_statuses||[]).includes('uncertain');
+    const mark=el('select');mark.setAttribute('aria-label','人工复核结论');refill(mark,[['','请选择核查结论'],...Object.entries(labels)]);if(!supportsUncertain)mark.querySelector('option[value=uncertain]').disabled=true;
     const note=el('textarea');note.className='ar-note';note.placeholder='请说明更正或补报的理由，供其他助教及后续规则优化参考。';note.maxLength=3000;note.setAttribute('aria-label','人工复核理由');
-    if(history.latest){mark.value=history.latest.status;note.value=history.latest.reason;}else{mark.value=r.annotation?.status||(r.decision_kind==='unflagged'?'ordinary':'suspected');try{const notes=JSON.parse(localStorage.getItem(noteKey)||'{}'),old=notes[r.run_id+':'+r.submission_id+':'+r.code_hash]||notes[r.submission_id+':'+r.code_hash];if(old){mark.value=({retained:'suspected',ordinary:'ordinary'})[old.status]||mark.value;note.value=old.note||'';}}catch{}}
-    const status=el('p'),historyBox=el('div'),bar=el('div');bar.className='ar-actions';let pending=null;
+    if(history.latest){mark.value=history.latest.status;note.value=history.latest.reason;}else{mark.value=r.annotation?.status||'';try{const notes=JSON.parse(localStorage.getItem(noteKey)||'{}'),old=notes[r.run_id+':'+r.submission_id+':'+r.code_hash]||notes[r.submission_id+':'+r.code_hash];if(old)note.value=old.note||'';}catch{}}
+    const status=el('p'),historyBox=el('div'),bar=el('div');bar.className='ar-actions';status.setAttribute('role','status');if(!supportsUncertain)status.textContent='云端尚未支持三态协议，存疑保存暂不可用。';let pending=null;
     function drawHistory(){historyBox.replaceChildren();for(const h of history.history){const item=el('div');item.className='ar-history';const title=el('strong',`${h.reviewer_name} · ${labels[h.status]} · ${new Date(h.created*1000).toLocaleString()}`);title.title=h.reviewer_id||'';item.append(title,el('p',h.reason));historyBox.append(item);void reviewHistoryName(h).then(name=>{if(valid()&&title.isConnected)title.textContent=`${name} · ${labels[h.status]} · ${new Date(h.created*1000).toLocaleString()}`;});}if(!history.history.length)historyBox.append(el('p','暂无云端人工记录。'));}
-    const save=button('保存结论与理由到云端',async()=>{if(!note.value.trim()){status.textContent='请填写理由后保存。';note.focus();return;}save.disabled=true;saving=true;updateNavigation();const body={submission_id:r.submission_id,code_hash:r.code_hash,run_id:r.run_id,status:mark.value,reason:note.value.trim(),code:r.code,base_revision:history.latest?.id||0};const signature=JSON.stringify(body);if(pending?.signature!==signature)pending={signature,request_id:crypto.randomUUID()};try{await client.saveFeedback({...body,request_id:pending.request_id},AbortSignal.timeout(20000));if(!valid())return;history=await client.feedback(r.submission_id,r.code_hash,r.run_id,AbortSignal.timeout(15000));if(!valid())return;pending=null;r.annotation=history.latest;r.review_status=history.latest.status==='suspected'?'reviewed_ai':'reviewed_no_ai';const visible=(options.problemList||r.review_status!=='reviewed_no_ai')&&(state.value==='all'||state.value==='queue'||state.value===r.review_status);cursor?.setVisible(r.submission_id,visible);listDirty=true;const rowIndex=rows.findIndex(x=>String(x.submission_id)===String(r.submission_id)&&x.code_hash===r.code_hash);if(rowIndex>=0){if(!visible){rows.splice(rowIndex,1);total=Math.max(0,total-1);}else{rows[rowIndex].annotation=history.latest;rows[rowIndex].review_status=r.review_status;}}draw();const label=detail.querySelector('[data-review-judgement]');if(label){label.textContent=judgement(r);label.dataset.state=r.review_status;}const reason=detail.querySelector('[data-review-reason]');if(reason)reason.textContent=history.latest.reason;drawHistory();status.textContent='已保存到云端，其他助教刷新后即可查看。';}catch(e){if(valid())status.textContent=e.message+'；草稿已保留，可重试或先刷新历史。';}finally{save.disabled=false;saving=false;if(valid())updateNavigation();}});save.className='primary';
+    const save=button('保存结论与理由到云端',async()=>{if(!Object.hasOwn(labels,mark.value)){status.textContent='请选择核查结论后保存。';mark.focus();return;}if(!note.value.trim()){status.textContent='请填写理由后保存。';note.focus();return;}save.disabled=true;saving=true;updateNavigation();const body={submission_id:r.submission_id,code_hash:r.code_hash,run_id:r.run_id,status:mark.value,reason:note.value.trim(),code:r.code,base_revision:history.latest?.id||0};const signature=JSON.stringify(body);if(pending?.signature!==signature)pending={signature,request_id:crypto.randomUUID()};try{await client.saveFeedback({...body,request_id:pending.request_id},AbortSignal.timeout(20000));if(!valid())return;history=await client.feedback(r.submission_id,r.code_hash,r.run_id,AbortSignal.timeout(15000));if(!valid())return;pending=null;r.annotation=history.latest;const oldState=r.review_status;r.profile_scores_valid=false;r.profile_stale=true;r.auxiliary_score=null;r.review_status=core.humanState(history.latest.status);if(counts){counts[oldState]=Math.max(0,(counts[oldState]||0)-1);counts[r.review_status]=(counts[r.review_status]||0)+1;showProgress();}const visible=core.inReviewFilter(r,state.value,options.problemList);cursor?.setVisible(r.submission_id,visible);listDirty=true;const rowIndex=rows.findIndex(x=>String(x.submission_id)===String(r.submission_id)&&x.code_hash===r.code_hash);if(rowIndex>=0){if(!visible){rows.splice(rowIndex,1);total=Math.max(0,total-1);}else{rows[rowIndex].annotation=history.latest;rows[rowIndex].review_status=r.review_status;rows[rowIndex].profile_scores_valid=false;rows[rowIndex].profile_stale=true;rows[rowIndex].auxiliary_score=null;}}draw();const label=detail.querySelector('[data-review-judgement]');if(label){label.textContent=judgement(r);label.dataset.state=r.review_status;}const reason=detail.querySelector('[data-review-reason]');if(reason)reason.textContent=history.latest.reason;drawHistory();status.textContent='已保存到云端；成员画像待更新。';const profileStatus=detail.querySelector('[data-profile-status]');const scoreSummary=detail.querySelector('[data-score-summary]');if(scoreSummary)scoreSummary.textContent=`原始分 ${core.scoreSummary(r).raw??'未提供'} · 画像辅助分待更新`;if(profileStatus)profileStatus.textContent='待更新：已有人工结论修订，当前画像分值为上次快照。';}catch(e){if(valid())status.textContent=e.message+'；草稿已保留，可重试或先刷新历史。';}finally{save.disabled=false;saving=false;if(valid())updateNavigation();}});save.className='primary';
     bar.append(mark,save,button('刷新云端历史',async()=>{try{history=await client.feedback(r.submission_id,r.code_hash,r.run_id,AbortSignal.timeout(15000));if(valid()){drawHistory();status.textContent='已刷新历史；当前理由草稿保留，请核对后再保存。';}}catch(e){if(valid())status.textContent=e.message;}}));
     const target=options.feedbackOnly?detail:detail.querySelector('.ar-review-content')||detail;
     target.append(el('h3','助教复核'),note,bar,status,el('h3','云端修改历史'),historyBox);drawHistory();
   }
-  async function exportRows(){
-    const c=getContext(),k=key();if(exportButton.disabled||!c.contest||!c.summary||!runId)return;const filterKey=()=>JSON.stringify(query(c,0,100)),filter=filterKey(),abort=new AbortController(),timeout=setTimeout(()=>abort.abort(),60000);
-    const valid=()=>k===key()&&filter===filterKey();
-    exportButton.disabled=true;message.textContent='正在准备 XLSX 导出…';
+  async function exportRows(format='xlsx'){
+    const c=getContext(),k=key();if(exportButton.disabled||!c.contest||!c.summary||!runId)return;const filterKey=()=>JSON.stringify(query(c,0,100)),filter=filterKey(),abort=new AbortController(),timeout=setTimeout(()=>abort.abort(),180000);const valid=()=>k===key()&&filter===filterKey();exportButton.disabled=jsonButton.disabled=true;
     try{const all=[];let expected=Infinity;for(let offset=0;offset<expected;offset+=100){const r=await client.search(query(c,offset,100),abort.signal);if(!valid())return;expected=r.total;all.push(...r.reviews);if(!r.reviews.length)break;}
       const feedback=[];if(getToken()){let after=0;while(true){const packet=await client.exportFeedback(c.contest.id,after,abort.signal);if(!valid())return;feedback.push(...packet.feedback);if(!packet.feedback.length)break;after=packet.next_after;}}
-      if(!valid())return;const result=createAiReviewExport(all,feedback,c);
-      const link=el('a'),url=URL.createObjectURL(result.blob);link.href=url;link.download=result.filename;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
-      message.textContent=`已导出 ${all.length} 条复核结果及 ${feedback.length} 条助教反馈。`;
-    }catch(e){if(valid())message.textContent='导出失败：'+(e.name==='AbortError'?'读取超时，请重试。':e.message);}finally{clearTimeout(timeout);exportButton.disabled=false;}
+      const complete=[];if(client.exportEvidence){let offset=0;do{const packet=await client.exportEvidence(runId,offset,abort.signal);if(!valid())return;if(packet.run_id!==runId||!Array.isArray(packet.items))throw Error('完整证据格式无效');for(const item of packet.items)core.feedbackPacket({latest:null,history:item.feedback_history||[]});complete.push(...packet.items.filter(item=>core.members(c.summary.rows).has(String(item.source?.creator_id))));if(packet.next_offset==null)break;if(!Number.isInteger(packet.next_offset)||packet.next_offset<=offset)throw Error('证据分页未前进');offset=packet.next_offset;message.textContent=`正在导出完整证据：${offset} / ${packet.total}`;}while(true);}
+      const memberMap=core.members(c.summary.rows),tables=core.exportTables(all,feedback),payload={schema_version:'review-export-v2',state_protocol:2,exported_at:new Date().toISOString(),class_name:c.className,run_id:runId,filters:query(c),...tables,...(client.exportEvidence?{complete_evidence:complete}:{}),current_review:tables.current_review.map(r=>({...r,name:memberMap.get(String(r.creator_id))?.name,student_id:memberMap.get(String(r.creator_id))?.studentId}))};
+      const result=format==='xlsx'?createAiReviewExport(tables.current_review,feedback,c,complete):{blob:new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),filename:'代码复核与完整证据.json'};const link=el('a'),url=URL.createObjectURL(result.blob);link.href=url;link.download=result.filename;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);message.textContent=`已导出 ${all.length} 条核查记录及 ${feedback.length} 条人工反馈。`;
+    }catch(e){if(valid())message.textContent='导出失败：'+e.message;}finally{clearTimeout(timeout);exportButton.disabled=jsonButton.disabled=false;}
   }
   return {reset,openDetail,setProblemScope,setActive(value){active=value;if(value)return refresh();stop();}};
 }

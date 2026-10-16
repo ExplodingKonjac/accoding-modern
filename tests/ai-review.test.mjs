@@ -162,3 +162,75 @@ test('quick-pass candidates work in v4 search and details without weakening scop
   await assert.rejects(()=>client(unknown).search(query),/不支持的规则或格式.*更新插件/);
   await assert.rejects(()=>client(unknown).detail(record.submission_id,record.run_id),/不支持的规则或格式.*更新插件/);
 });
+
+test('manual uncertain records keep the machine result absent and reject invented or inconsistent states',()=>{
+  const annotation={id:2,status:'uncertain',reason:'需要复查原始来源'},record={...featurePositive,decision_kind:'human_review',result:null,annotation,human_status:'uncertain',review_status:'reviewed_uncertain'};
+  assert.equal(core.hasReviewRecord(record),true);
+  assert.equal(core.hasReviewRecord({...record,result:{ai_suspected:false,label:[],reason:annotation.reason}}),false);
+  assert.equal(core.hasReviewRecord({...record,human_status:'ordinary'}),false);
+  assert.equal(core.hasReviewRecord({...record,review_status:'reviewed_no_ai'}),false);
+  assert.equal(core.hasReviewRecord({...record,annotation:{...annotation,status:'unknown'}}),false);
+  assert.deepEqual(Object.keys(core.humanLabels),['ordinary','uncertain','suspected']);
+  assert.throws(()=>core.humanState('unknown'),/格式无效/);
+});
+
+test('uncertain remains in queue, explicit no-AI and all filters remain reachable',()=>{
+  for(const state of ['rule_hit_unreviewed','reviewed_uncertain','reviewed_ai'])assert.equal(core.inReviewFilter({review_status:state}),true);
+  assert.equal(core.inReviewFilter({review_status:'reviewed_no_ai'}),false);
+  assert.equal(core.inReviewFilter({review_status:'reviewed_no_ai'},'all'),true);
+  assert.equal(core.inReviewFilter({review_status:'reviewed_uncertain'},'reviewed_ai'),false);
+  assert.equal(core.inReviewFilter({review_status:'reviewed_no_ai'},'reviewed_no_ai'),true);
+  assert.throws(()=>core.inReviewFilter({review_status:'unknown'}),/格式无效/);
+});
+
+test('new labels remove naming selectors but retain readable legacy runs',()=>{
+  assert.equal(core.featureLabels.includes('函数与变量命名'),false);
+  assert.equal(core.featureLabels.includes('长变量命名'),false);
+  for(const label of ['CE 使用非 C 语言语法','AC 后重复提交码风变化','快速过题'])assert.equal(core.hasFeatureReview({...featurePositive,result:{...featurePositive.result,label:[label]}}),true);
+  assert.equal(core.hasFeatureReview({...featurePositive,result:{...featurePositive.result,label:['函数与变量命名']}}),true);
+});
+
+test('all v4 requests declare state protocol and source-scoped feedback preserves three states',async()=>{
+  const calls=[],annotation={id:1,status:'uncertain',reason:'复查'},client=core.featureClient(()=>'token',async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({latest:annotation,history:[annotation]})};},4);
+  assert.equal((await client.feedback('1','a'.repeat(64),'run')).latest.status,'uncertain');
+  await client.profile('11',1299);
+  for(const {options} of calls)assert.equal(options.headers['X-Review-State-Protocol'],'2');
+  assert.match(calls[1].url,/\/profiles\/11\?site=.*&contest_id=1299/);
+  const invalid=core.featureClient(()=>'token',async()=>({ok:true,json:async()=>({latest:{...annotation,status:'unknown'},history:[]})}),4);
+  await assert.rejects(()=>invalid.feedback('1','a'.repeat(64),'run'),/格式无效/);
+});
+
+test('JSON export uses newest exact-source annotations and separates evidence from review counts',()=>{
+  const hash=featurePositive.code_hash,note=(id,status)=>({id,submission_id:'1',code_hash:hash,status,reason:'核实来源'}),record={...featurePositive,review_status:'reviewed_ai',annotation:note(5,'suspected'),raw_score:60,auxiliary_score:40,previous_submission:{submission_id:'0',result:'WA'}};
+  const tables=core.exportTables([record],[note(1,'ordinary'),note(6,'uncertain'),{...note(100,'ordinary'),code_hash:'x'}]);
+  assert.equal(tables.current_review[0].review_status,'reviewed_uncertain');assert.equal(tables.counts.reviewed_uncertain,1);assert.equal(tables.counts.reviewed_no_ai,0);
+  assert.equal(tables.complete_evidence[0].previous_submission.result,'WA');
+  assert.deepEqual(tables.current_review[0].score_summary,{raw:60,adjusted:40});
+  assert.equal(core.exportTables([record],[note(1,'ordinary')]).current_review[0].review_status,'reviewed_ai');
+  assert.equal(tables.current_review[0].source_url,'https://accoding.buaa.edu.cn:4000/submission/1');
+  assert.throws(()=>core.exportTables([record],[note(7,'unknown')]),/格式无效/);
+});
+
+
+test('stale or explicitly withheld auxiliary scores cannot fall back to legacy score fields',()=>{
+  assert.deepEqual(core.scoreSummary({raw_score:60,auxiliary_score:null,scoring:{auxiliary_score:99}}),{raw:60,adjusted:null});
+  assert.deepEqual(core.scoreSummary({raw_score:60,profile_scores_valid:false,auxiliary_score:99}),{raw:60,adjusted:null});
+});
+
+
+test('default run selection ignores incomplete publications and preserves explicit history access',()=>{
+  const stable={run_id:'stable',created_at:100,publication_ready:true},uploading={run_id:'uploading',created_at:200,publication_ready:false};
+  const values=[stable,uploading],selected=core.selectReviewRun(values);
+  assert.equal(selected.selected.run_id,'stable');assert.equal(selected.latest.run_id,'stable');assert.deepEqual(selected.pending,[uploading]);assert.equal(selected.explicit,false);
+  assert.equal(core.selectReviewRun(values,'uploading').selected.run_id,'uploading');assert.equal(core.selectReviewRun(values,'uploading').explicit,true);
+  assert.equal(core.selectReviewRun(values,'unknown').selected.run_id,'stable');
+  assert.equal(core.selectReviewRun([uploading]).selected,null);assert.equal(core.selectReviewRun([]).selected,null);
+  assert.equal(core.selectReviewRun([stable,{...uploading,publication_ready:true}]).selected.run_id,'uploading');
+  assert.deepEqual(values,[stable,uploading]);
+});
+
+test('legacy runs remain ready by default and ISO run timestamps sort chronologically',()=>{
+  const older={run_id:'z',created_at:'2026-10-15T18:00:00+08:00'},newer={run_id:'a',created_at:'2026-10-16T09:00:00Z'};
+  assert.equal(core.selectReviewRun([older,newer]).selected.run_id,'a');
+  assert.equal(core.selectReviewRun([{...newer,publication_ready:false},older]).selected.run_id,'z');
+});

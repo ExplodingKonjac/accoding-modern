@@ -40,8 +40,8 @@ test('review XLSX matches local columns, styling and identity ordering with lite
   assert.match(sheet, /=HYPERLINK\(&quot;bad&quot;\)/);
   assert.doesNotMatch(sheet, /<f[ >]/);
   assert.match(sheet, /state="frozen"/);
-  assert.match(sheet, /autoFilter ref="A1:H4"/);
-  assert.deepEqual([...sheet.matchAll(/width="(\d+)"/g)].map(match => Number(match[1])), [14, 17, 43, 19, 19, 56, 20, 56]);
+  assert.match(sheet, /autoFilter ref="A1:P4"/);
+  assert.deepEqual([...sheet.matchAll(/width="(\d+)"/g)].map(match => Number(match[1])), [14, 17, 43, 19, 19, 56, 20, 56, 16, 36, 32, 18, 60, 24, 64, 60]);
   assert.match(files.get('xl/styles.xml'), /FF254766/);
   assert.match(files.get('xl/_rels/workbook.xml.rels'), /Target="worksheets\/sheet2.xml"/);
   assert.match(files.get('xl/workbook.xml'), /name="助教反馈历史"/);
@@ -53,7 +53,7 @@ test('feedback revisions retain whole-contest history, conclusions and original 
   const files = await entries(createAiReviewExport([], feedback, context)), sheet = files.get('xl/worksheets/sheet2.xml');
   assert.match(sheet, /autoFilter ref="A1:J3"/);
   for (const text of ['999', '已核查为AI', '已核查为无AI', '1970-01-01T00:00:01.000Z', '编号步骤', '原始依据', '理由\n第二行\ufffd']) assert.ok(sheet.includes(text));
-  assert.match(files.get('xl/worksheets/sheet1.xml'), /autoFilter ref="A1:H1"/);
+  assert.match(files.get('xl/worksheets/sheet1.xml'), /autoFilter ref="A1:P1"/);
 });
 
 test('frozen rule reasons supply exact scores without guessing from labels or TA prose', () => {
@@ -87,4 +87,12 @@ test('unmatched and missing student identities fail instead of creating an incom
   assert.throws(() => createAiReviewExport([review('1', '3')], [], context), /姓名或学号/);
   const missing = structuredClone(context); missing.summary.rows[0].studentId = '';
   assert.throws(() => createAiReviewExport([review('1')], [], missing), /姓名或学号/);
+});
+
+test('upgraded XLSX preserves uncertain, both scores, versions and WA evidence',async()=>{
+  const row={...review('1'),review_status:'reviewed_uncertain',raw_score:80,auxiliary_score:55,profile_version:'profiles-v1',rule_version:'rules-vNext',evaluation_result:'AC',annotation:{id:3,status:'uncertain',reason:'需复查'},previous_submission:{submission_id:'4',result:'WA',code_hash:'c'.repeat(64)}};
+  const files=await entries(createAiReviewExport([row],[],context)),sheet=files.get('xl/worksheets/sheet1.xml'),evidence=files.get('xl/worksheets/sheet3.xml');
+  for(const text of ['已核查为存疑','80','55','rules-vNext','profiles-v1'])assert.ok(sheet.includes(text));
+  assert.match(evidence,/WA/);assert.match(evidence,/历史对照/);
+  assert.throws(()=>createAiReviewExport([{...row,annotation:{status:'unknown'}}],[],context),/格式无效/);
 });

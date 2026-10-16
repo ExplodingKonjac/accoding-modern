@@ -19,7 +19,7 @@
   URL.createObjectURL = blob => { const url = nativeCreate(blob); blobs.set(url, blob); return url; };
   HTMLAnchorElement.prototype.click = function () { if (this.download) downloads.push({filename: this.download, blob: blobs.get(this.href)}); else nativeClick.call(this); };
   const panel = createAiReviewPanel(host, {...core, featureClient: () => client}, () => ctx);
-  const button = () => [...host.querySelectorAll('button')].find(node => node.textContent === '导出当前结果 XLSX');
+  const button = () => [...host.querySelectorAll('button')].find(node => node.textContent === '导出 XLSX');
   try {
     button().click(); assert(downloads.length === 0, 'no export before loading');
     await panel.setActive(true); queries.length = 0;
@@ -29,9 +29,9 @@
     assert(feedbackOffsets.join(',') === '0,1,2', 'all feedback revisions fetched');
     assert(downloads[0].filename === '测试班-测试比赛-代码复核.xlsx', 'XLSX filename');
     const sheets = await readClassXlsx(downloads[0].blob);
-    assert(sheets.length === 2 && sheets[0].rows.length === 206 && sheets[1].rows.length === 3, 'all rows and both sheets');
+    assert(sheets.length === 3 && sheets[0].rows.length === 206 && sheets[1].rows.length === 3, 'all rows and all sheets');
     assert(sheets[0].rows[1][1] === '00012345678901234567', 'identifier retained');
-    assert(sheets[0].rows[0].length === 8 && sheets[0].rows.slice(1).every(row => row[4] === '70'), 'saved scores and eight columns');
+    assert(sheets[0].rows[0].length === 16 && sheets[0].rows.slice(1).every(row => row[4] === '70'), 'saved scores and sixteen columns');
     assert(sheets[0].rows[1][6] === '已核查为无AI' && sheets[0].rows[1][7] === '历史理由', 'latest verdict and reason');
     assert(sheets[0].rows[2][6] === '未复核' && sheets[0].rows[2][7] === '', 'unreviewed defaults');
     pause = {}; button().click(); await settle(() => pause.resolve);
@@ -43,6 +43,6 @@
     fail = true; button().click(); await settle(() => !button().disabled);
     assert(host.querySelector('[role="status"]').textContent.includes('导出失败：模拟网络失败'), 'failed request reported');
     assert(downloads.length === 1, 'failed request never downloads');
-    return {passed: true, exportedRows: 205, feedbackRevisions: 2, sheets: 2, pagination: true, duplicateClick: true, filterCancellation: true, contextCancellation: true, networkFailure: true};
+    return {passed: true, exportedRows: 205, feedbackRevisions: 2, sheets: 3, pagination: true, duplicateClick: true, filterCancellation: true, contextCancellation: true, networkFailure: true};
   } finally { panel.setActive(false); HTMLAnchorElement.prototype.click = nativeClick; URL.createObjectURL = nativeCreate; }
 })()
