@@ -67,8 +67,8 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     prev.disabled = page <= 0; next.disabled = page >= pages - 1;
     target.append(el('span', `共 ${count} 条 · ${page + 1} / ${pages}`, 'muted'), prev, next);
   }
-  const reviewPanel=createAiReviewPanel($('#review-pane'),reviewCore,()=>({classId:currentId,className:selected()?.name,contest,summary,generation}),null,{loadContestSubmissions:reviewContestSubmissions});
-  const problemReviewPanel=createAiReviewPanel($('#problem-review-content'),reviewCore,()=>({classId:currentId,className:selected()?.name,contest,summary,generation}),null,{problemList:true,loadContestSubmissions:reviewContestSubmissions});
+  const reviewPanel=createAiReviewPanel($('#review-pane'),reviewCore,()=>({classId:currentId,className:selected()?.name,contest,summary,generation,contestNames:Object.fromEntries([...$('#contest-select').options].filter(option=>/^\d+$/.test(option.value)).map(option=>[option.value,option.textContent]))}),null,{loadContestSubmissions:reviewContestSubmissions});
+  const problemReviewPanel=createAiReviewPanel($('#problem-review-content'),reviewCore,()=>({classId:currentId,className:selected()?.name,contest,summary,generation,contestNames:Object.fromEntries([...$('#contest-select').options].filter(option=>/^\d+$/.test(option.value)).map(option=>[option.value,option.textContent]))}),null,{problemList:true,loadContestSubmissions:reviewContestSubmissions});
   function resetContest() {
     reviewPanel.reset();
     problemReviewPanel.setActive(false);problemReviewPanel.reset();$('#problem-review-page').hidden=true;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.20.0
+// @version      1.20.1
 // @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @include      https://accoding-4000.e1.buaa.edu.cn/*
@@ -23,7 +23,7 @@
 
 (() => {
 'use strict';
-const ACCODING_MODERN_VERSION="1.20.0";
+const ACCODING_MODERN_VERSION="1.20.1";
 // Runtime URL compatibility for the direct site and BUAA VPN reverse proxy.
 // The VPN keeps the upstream app under /https-4000/<opaque-token>/, so absolute
 // root requests and pathname checks must be evaluated relative to that prefix.
@@ -1768,6 +1768,30 @@ function createAiReviewCore() {
   const humanLabels={ordinary:'无 AI',uncertain:'存疑',suspected:'有 AI'};
   const reviewStates={rule_unmatched:'规则未命中',rule_hit_unreviewed:'规则命中/未核查',reviewed_no_ai:'已核查为无AI',reviewed_uncertain:'已核查为存疑',reviewed_ai:'已核查为AI'};
   const legacyFeatureLabels=['长变量命名','函数与变量命名'];
+  const courseGroups=[{course:'C语言',ids:[1305,1312,1319,1327]},{course:'程序设计基础',ids:[1299,1309,1315,1323,1304,1310]}];
+  function courseContests(contestId){const group=courseGroups.find(item=>item.ids.includes(Number(contestId)));return group?group.ids.map((id,index)=>({id,label:`${group.course} ${index<4?'C'+(index+1):'E'+(index-3)}`})):[];}
+  function collectedContests(){return courseGroups.flatMap(group=>courseContests(group.ids[0]));}
+  function contestLabel(contestId,titles={}){const known=courseGroups.flatMap(group=>courseContests(group.ids[0])).find(item=>String(item.id)===String(contestId));return known?.label||titles[contestId]||'其他比赛';}
+  function beijingTime(value,empty='时间未提供'){
+    if(value==null||value==='')return empty;const number=typeof value==='number'||/^\d+(?:\.\d+)?$/.test(String(value))?Number(value):null;
+    const date=new Date(number==null?value:number<1e12?number*1000:number);if(!Number.isFinite(date.getTime()))return empty;
+    const parts=Object.fromEntries(new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(date).map(item=>[item.type,item.value]));
+    return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+  }
+  function profileNarrative(snapshot,currentContestId,titles={}){
+    const summary=snapshot.profile?.summary||{},coverage=summary.coverage||{},base=summary.baseline||{},scope=(snapshot.scope_contest_ids||[]).map(Number),ids=(coverage.contest_ids||scope).map(Number),course=courseContests(currentContestId),missing=course.filter(item=>!scope.includes(item.id));
+    const names=ids.map(id=>contestLabel(id,titles));
+    const range=`当前画像包含${names.length?names.join('、'):'当前可查看比赛'}的 ${coverage.source_count??coverage.submissions??0} 份提交代码。`;
+    let gap=scope.length<=1?'本次仅能查看这一场比赛，其他比赛的历史尚未计入，跨场习惯还无法判断。':missing.length?`${missing.map(item=>item.label).join('、')}尚未计入；以下观察只依据当前可查看的比赛。`:'以上范围仅限已授权且已采集的比赛。';
+    if(snapshot.scope_pending)gap+=' 新增比赛的历史正在汇总，画像和辅助分值待更新。';
+    else if(snapshot.stale)gap+=' 人工结论已更新，历史观察和辅助分值正在重新计算。';
+    if(coverage.parse_failed)gap+=` 其中 ${coverage.parse_failed} 份代码未能可靠分析，未用于习惯比较。`;
+    const count=base.sample_count??0,problems=base.problem_count??0;
+    const confirmation=base.status==='confirmed'?'这些代码已由助教核查为无 AI。':base.status==='provisional'?'这些代码尚未经人工确认。':'可比较的历史代码不足，暂不能形成稳定对照。';
+    const baseline=`目前用于描述习惯的参照代码：${count} 份，覆盖 ${problems} 题。${confirmation}`;
+    const habits=Object.entries(summary.habits||{}).map(([kind,habit])=>({kind,habit,text:habit.applicable?`${habit.applicable} 份可比较的代码中，${habit.present??0} 份${kind==='input_guard'?'包含额外输入失败检查':kind==='comment'?'包含说明性注释':'具有这项写法'}。`:`暂无可用于比较${kind==='input_guard'?'输入检查':kind==='comment'?'说明性注释':'这项写法'}的代码。`}));
+    return {range,gap,baseline,habits,updated:`统计更新至 ${beijingTime(snapshot.cutoff)}（北京时间）。`,distribution:Object.entries(summary.distribution||{}).map(([id,item])=>({label:contestLabel(id,titles),item,score:summary.member_score?.[id]}))};
+  }
   function selectReviewRun(values,preferred='latest'){
     const moment=run=>{const numeric=Number(run.created_at);return Number.isFinite(numeric)?numeric:(Date.parse(run.created_at)||0);};
     const runs=[...values].sort((a,b)=>moment(b)-moment(a)||b.run_id.localeCompare(a.run_id));
@@ -1848,8 +1872,8 @@ function createAiReviewCore() {
       saveFeedback:(body,signal)=>{humanState(body.status);if(typeof body.reason!=='string'||!body.reason.trim())throw new Error('请填写核查理由');return request('/feedback',body,signal);},
       exportEvidence:(runId,offset=0,signal)=>request(`/runs/${encodeURIComponent(runId)}/evidence/export?offset=${offset}&limit=200`,null,signal),
       exportFeedback:(contest,after=0,signal)=>request(`/contests/${encodeURIComponent(contest)}/feedback/export?after=${after}`,null,signal),
-      progress:(contest,signal)=>runs(`/contests/${encodeURIComponent(contest)}/progress`,signal,contest),
-      submissionRuns:(id,signal)=>runs(`/submissions/${encodeURIComponent(id)}/runs${version===4?'?include_candidates=true':''}`,signal),
+      progress:(contest,signal)=>runs(`/contests/${encodeURIComponent(contest)}/progress${version===4?'?include_unpublished=true':''}`,signal,contest),
+      submissionRuns:(id,signal)=>runs(`/submissions/${encodeURIComponent(id)}/runs${version===4?'?include_candidates=true&include_unpublished=true':''}`,signal),
       async detail(id,runId,signal){if(!runId)throw new Error('请先选择核查运行');const r=await request(`/runs/${encodeURIComponent(runId)}/submissions/${encodeURIComponent(id)}${version===4?'?include_candidates=true':''}`,null,signal,true);if(r&&(r.run_id!==runId||String(r.submission_id)!==String(id)))throw new Error('复核详情与所选运行或提交不一致');if(r&&!(version===4?hasReviewRecord(r):hasFeatureReview(r)))throw new Error('复核结果包含当前插件不支持的规则或格式，请更新插件后重试');if(r&&typeof r.code==='string')await verifySource(r.code,r.code_hash);return r;},
       async search(query,signal){
         if(!query.run_id)throw new Error('请先选择核查运行');const r=await request('/reviews/search',version===4?{...query,include_candidates:true,include_all:true}:query,signal);
@@ -1889,7 +1913,7 @@ function createAiReviewCore() {
     }
     solve(a,b,1,1);return output;
   }
-  return {selectReviewRun,humanLabels,humanState,feedbackPacket,inReviewFilter,scoreSummary,submissionUrl,exportTables,reviewCursor,lineDiff,api,apiV3,apiV4,selections,states,reviewStates,featureLabels,members,hasFlaggedReview,hasFeatureReview,hasReviewRecord,verifySource,sourceVariants,sourceFromOj,client,featureClient};
+  return {collectedContests,courseContests,contestLabel,beijingTime,profileNarrative,selectReviewRun,humanLabels,humanState,feedbackPacket,inReviewFilter,scoreSummary,submissionUrl,exportTables,reviewCursor,lineDiff,api,apiV3,apiV4,selections,states,reviewStates,featureLabels,members,hasFlaggedReview,hasFeatureReview,hasReviewRecord,verifySource,sourceVariants,sourceFromOj,client,featureClient};
 }
 
 
@@ -1983,46 +2007,61 @@ async function reviewHistoryName(record){
   if(!id||stored&&!/^OJ\s*用户\s*\d+$/.test(stored)&&stored!=='个人信息')return stored;
   return await reviewProfileName(id)||stored||`OJ 用户 ${id}`;
 }
-async function ensureReviewAccess(contestId,core){
-  const cid=Number(contestId);
+const reviewAccessUnions=new Map(),reviewAccessUnionPending=new Map(),reviewAccessCoverage=new Map();
+async function reviewAccessPost(path,body){
+  const response=await (typeof reviewFetch==='function'?reviewFetch:fetch)('https://muzermat.online:8443/oj-review-api/v4'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Review-State-Protocol':'2'},credentials:'omit',cache:'no-store',body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
+  const value=await response.json();if(!response.ok)throw new Error(value.detail||'OJ 权限验证失败，请刷新重试。');return value;
+}
+async function reviewCurrentAccount(){
   let account=reviewAccount(document);
-  // Standalone source pages do not include the signed-in account navigation.
-  if(!account){
-    const response=await fetch('/',{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)});
-    if(response.ok)account=reviewAccount(new DOMParser().parseFromString(await response.text(),'text/html'));
-  }
-  if(!account)throw new Error('请先登录 OJ 后刷新重试。');
-  const {userId}=account,key=userId+':'+cid;
-  const saved=reviewAccessSessions.get(key);
-  if(saved&&saved.expires>Date.now()/1000+60)return saved.token;
+  if(!account){const response=await fetch('/',{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)});if(response.ok)account=reviewAccount(new DOMParser().parseFromString(await response.text(),'text/html'));}
+  if(!account)throw new Error('请先登录 OJ 后刷新重试。');return account;
+}
+// A proof authenticates exactly one contest. This helper never calls the union workflow.
+async function ensureReviewContestProof(contestId,core,account){
+  const cid=Number(contestId),{userId}=account,key=userId+':'+cid,saved=reviewAccessSessions.get(key);
+  if(saved&&saved.expires>Date.now()/1000+60)return saved;
   if(reviewAccessPending.has(key))return reviewAccessPending.get(key);
   const pending=(async()=>{
-    const api='https://muzermat.online:8443/oj-review-api/v4';
-    const post=async(path,body)=>{const r=await (typeof reviewFetch==='function'?reviewFetch:fetch)(api+path,{method:'POST',headers:{'Content-Type':'application/json','X-Review-State-Protocol':'2'},credentials:'omit',cache:'no-store',body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});const value=await r.json();if(!r.ok)throw new Error(value.detail||'OJ 权限验证失败，请刷新重试。');return value;};
     const hash=async value=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(v=>v.toString(16).padStart(2,'0')).join('');
-    const displayName=account.name||await reviewProfileName(userId);
-    if(!displayName)throw new Error('未能读取当前助教姓名，请刷新 OJ 后重试。');
-    const challenge=await post('/access/challenge',{contest_id:cid,user_id:userId,display_name:displayName});
+    const displayName=account.name||await reviewProfileName(userId);if(!displayName)throw new Error('未能读取当前助教姓名，请刷新 OJ 后重试。');
+    const challenge=await reviewAccessPost('/access/challenge',{contest_id:cid,user_id:userId,display_name:displayName});
     if(!Array.isArray(challenge.submission_ids)||challenge.submission_ids.length!==3||challenge.submission_ids.some(s=>!/^\d+$/.test(s)))throw new Error('权限验证数据无效。');
     const answers=await Promise.all(challenge.submission_ids.map(async sid=>{
-      const r=await fetch('/submission/'+sid,{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)});
-      const node=new DOMParser().parseFromString(await r.text(),'text/html').querySelector('pre code');
-      if(!r.ok||!node)throw new Error('当前 OJ 账号没有读取此比赛源码的权限。');
+      const response=await fetch('/submission/'+sid,{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)}),node=new DOMParser().parseFromString(await response.text(),'text/html').querySelector('pre code');
+      if(!response.ok||!node)throw new Error('当前 OJ 账号没有读取此比赛源码的权限。');
       return Promise.all(core.sourceVariants(node.textContent,sid).slice(0,10).map(async code=>hash(challenge.nonce+':'+await hash(code))));
     }));
-    const session=await post('/access/verify',{challenge_id:challenge.challenge_id,answers});
+    const session=await reviewAccessPost('/access/verify',{challenge_id:challenge.challenge_id,answers});
     if(session.contest_id!==cid||typeof session.token!=='string'||!Number.isFinite(session.expires))throw new Error('权限验证结果无效。');
-    reviewAccessSessions.set(key,session);return session.token;
-  })();
-  reviewAccessPending.set(key,pending);
-  try{return await pending;}finally{reviewAccessPending.delete(key);}
+    reviewAccessSessions.set(key,session);return session;
+  })();reviewAccessPending.set(key,pending);try{return await pending;}finally{reviewAccessPending.delete(key);}
+}
+async function ensureReviewAccess(contestId,core){
+  const cid=Number(contestId),account=await reviewCurrentAccount(),current=await ensureReviewContestProof(cid,core,account),sameCourse=core.courseContests?.(cid)||[],all=core.collectedContests?.()||sameCourse,group=[...(sameCourse.length?sameCourse:[{id:cid}]),...all.filter(item=>item.id!==cid&&!sameCourse.some(known=>known.id===item.id))];
+  if(group.length<2){reviewAccessCoverage.set(cid,{attempted_ids:[cid],verified_ids:[cid],failed_ids:[]});return current.token;}
+  const unionKey=account.userId+':'+group.map(item=>item.id).sort((a,b)=>a-b).join(',');
+  if(reviewAccessUnionPending.has(unionKey)){const union=await reviewAccessUnionPending.get(unionKey);return union?.contest_ids.includes(cid)?union.token:current.token;}
+  const pending=(async()=>{
+    const others=group.filter(item=>item.id!==cid),attempts=[],proofs=[current],failed=[];for(let offset=0;offset<others.length;offset+=3)attempts.push(...await Promise.allSettled(others.slice(offset,offset+3).map(item=>ensureReviewContestProof(item.id,core,account))));
+    attempts.forEach((result,index)=>{if(result.status==='fulfilled')proofs.push(result.value);else failed.push(others[index].id);});
+    const verified=proofs.map(proof=>proof.contest_id).sort((a,b)=>a-b),coverage={attempted_ids:group.map(item=>item.id),verified_ids:verified,failed_ids:failed};
+    for(const item of group)reviewAccessCoverage.set(item.id,coverage);
+    if(proofs.length<2)return null;
+    const signature=proofs.map(proof=>proof.token).sort().join('|'),saved=reviewAccessUnions.get(unionKey);
+    if(saved&&saved.signature===signature&&saved.expires>Date.now()/1000+60)return saved;
+    try{const session=await reviewAccessPost('/access/combine',{tokens:proofs.map(proof=>proof.token)});
+      if(typeof session.token!=='string'||!Number.isFinite(session.expires)||!Array.isArray(session.contest_ids)||session.contest_ids.length!==verified.length||session.contest_ids.some(id=>!verified.includes(id)))throw new Error('跨场权限合并结果无效。');
+      reviewAccessUnions.set(unionKey,{...session,signature});return session;
+    }catch{for(const item of group)reviewAccessCoverage.set(item.id,{attempted_ids:group.map(item=>item.id),verified_ids:[cid],failed_ids:group.filter(item=>item.id!==cid).map(item=>item.id),combine_error:true});return null;}
+  })();reviewAccessUnionPending.set(unionKey,pending);try{const union=await pending;return union?.contest_ids.includes(cid)?union.token:current.token;}finally{reviewAccessUnionPending.delete(unionKey);}
 }
 
 function createAiReviewPanel(container,core,getContext,_readMetadata,options={}) {
   const noteKey='accoding-modern.ai-review.notes.v1';
   let accessToken='';
   let generation=0,controller=null,timer=null,rows=[],page=0,total=0,active=false,detailVersion=0,detailController=null,runs=[],runId='',counts=null,scope=null,listDirty=false,listPosition=null;
-  let cursor=null,updateNavigation=()=>{},navigationBusy=false,saving=false;
+  let cursor=null,updateNavigation=()=>{},navigationBusy=false,saving=false,detailResize=null;
   const getToken=()=>accessToken;
   const client=core.featureClient(getToken,typeof reviewFetch==='function'?reviewFetch:fetch,4),size=30;
   const el=(tag,text)=>{const n=document.createElement(tag);if(text!=null)n.textContent=String(text);return n;};
@@ -2039,7 +2078,7 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   const message=el('p','读取比赛后，打开代码复核。');message.setAttribute('role','status');
   const progress=el('p');progress.setAttribute('aria-live','polite');
   const list=el('div');list.className='table-wrap';const pager=el('div');pager.className='pager';const detail=el('section');detail.className='panel';detail.hidden=true;
-  const style=el('style');style.textContent=`.ar-toolbar,.ar-actions,.ar-review-head,.ar-review-nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}.ar-toolbar select{min-width:140px;flex:1}.ar-actions button,.ar-review-nav button{min-height:44px}.ar-actions select{min-height:44px}.ar-review-page :is(button,select,textarea,a):focus-visible{outline:3px solid #3156a1;outline-offset:3px}.ar-profile dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 18px}.ar-profile dd{margin:0;overflow-wrap:anywhere}.ar-evidence-meta{overflow-wrap:anywhere}.ar-state[data-state=reviewed_uncertain]{background:#fff8d6;color:#735800}.ar-note{display:block;width:100%;min-height:100px;padding:12px;border:1px solid #ccd9e9;border-radius:8px;box-sizing:border-box;font:inherit}.ar-source{font:13px/1.65 ui-monospace,monospace;overflow:auto;max-height:540px;background:#f7f9fc;padding:12px;border:1px solid #dce3ed;border-radius:8px}.ar-history{border-left:3px solid #d7e3f7;padding:10px 14px;margin:12px 0}.ar-table td{white-space:normal;min-width:90px}.ar-table td:last-child{white-space:nowrap}.ar-review-page,.ar-student-page{position:fixed;inset:0;z-index:2147483002;overflow:auto;background:#eef3f9;padding:18px max(18px,calc((100vw - 1600px)/2));margin:0;border:0;border-radius:0;box-sizing:border-box}.ar-student-page{z-index:2147483003}.ar-review-page:has(.ar-student-page){overflow:hidden}.ar-current-submission{background:#e8f0ff}.ar-review-head{position:sticky;top:0;z-index:3;background:#fff;padding:10px 16px;border:1px solid #dfe7f0;border-radius:12px;justify-content:space-between}.ar-review-head h2{margin:0;font-size:19px}.ar-review-nav{margin:0}.ar-state{font-weight:700;border-radius:8px;padding:5px 12px;background:#e8f0ff;color:#3156a1}.ar-state[data-state=reviewed_ai]{background:#fff0e6;color:#a14718}.ar-state[data-state=reviewed_no_ai]{background:#e7f7ed;color:#216b3f}.ar-state[data-state=rule_unmatched]{background:#eef1f5;color:#526175}.ar-compare{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0;border:1px solid #dce3ed;border-radius:10px;overflow:hidden;background:#fff}.ar-compare-title{font-weight:700;padding:10px 14px;background:#f2f6fc;border-bottom:1px solid #dce3ed}.ar-compare-title:nth-child(2){border-left:1px solid #dce3ed}.ar-compare-row{display:contents}.ar-code-line{min-width:0;overflow:visible;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 ui-monospace,monospace;padding:0 10px;min-height:23px}.ar-code-line:nth-child(2n){border-left:1px solid #dce3ed}.ar-code-line.add{background:#dafbe1;color:#116329}.ar-code-line.remove{background:#ffebe9;color:#82071e}.ar-code-line .num{display:inline-block;min-width:3em;margin-right:10px;text-align:right;color:#8190a4;user-select:none}.ar-review-content{background:#fff;border:1px solid #dfe7f0;border-radius:12px;margin-top:12px;padding:18px}.ar-review-content>h3{margin-top:22px}.ar-review-content p{overflow-wrap:anywhere}@media(max-width:700px){.ar-toolbar>*{flex:1 1 150px}.ar-actions>*{flex:1}.ar-review-page{padding:8px}.ar-code-line{font-size:11px}}`;
+  const style=el('style');style.textContent=`.ar-toolbar,.ar-actions,.ar-review-head,.ar-review-nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}.ar-toolbar select{min-width:140px;flex:1}.ar-actions button,.ar-review-nav button{min-height:44px}.ar-actions select{min-height:44px}.ar-review-page :is(button,select,textarea,a):focus-visible{outline:3px solid #3156a1;outline-offset:3px}.ar-profile dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 18px}.ar-profile dd{margin:0;overflow-wrap:anywhere}.ar-profile-range{font-weight:600}.ar-profile-technical{margin-top:18px;color:#526175}.ar-evidence-meta{overflow-wrap:anywhere}.ar-state[data-state=reviewed_uncertain]{background:#fff8d6;color:#735800}.ar-note{display:block;width:100%;min-height:100px;padding:12px;border:1px solid #ccd9e9;border-radius:8px;box-sizing:border-box;font:inherit}.ar-source{font:13px/1.65 ui-monospace,monospace;overflow:auto;max-height:540px;background:#f7f9fc;padding:12px;border:1px solid #dce3ed;border-radius:8px}.ar-history{border-left:3px solid #d7e3f7;padding:10px 14px;margin:12px 0}.ar-table td{white-space:normal;min-width:90px}.ar-table td:last-child{white-space:nowrap}.ar-review-page,.ar-student-page{position:fixed;inset:0;z-index:2147483002;overflow:auto;background:#eef3f9;padding:18px max(18px,calc((100vw - 1600px)/2));margin:0;border:0;border-radius:0;box-sizing:border-box}.ar-student-page{z-index:2147483003}.ar-review-page:has(.ar-student-page){overflow:hidden}.ar-current-submission{background:#e8f0ff}.ar-review-head{position:sticky;top:0;z-index:3;background:#fff;padding:10px 16px;border:1px solid #dfe7f0;border-radius:12px;justify-content:space-between}.ar-review-head h2{margin:0;font-size:19px}.ar-review-nav{margin:0}.ar-state{font-weight:700;border-radius:8px;padding:5px 12px;background:#e8f0ff;color:#3156a1}.ar-state[data-state=reviewed_ai]{background:#fff0e6;color:#a14718}.ar-state[data-state=reviewed_no_ai]{background:#e7f7ed;color:#216b3f}.ar-state[data-state=rule_unmatched]{background:#eef1f5;color:#526175}.ar-compare{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0;border:1px solid #dce3ed;border-radius:10px;overflow:hidden;background:#fff}.ar-compare-title{font-weight:700;padding:10px 14px;background:#f2f6fc;border-bottom:1px solid #dce3ed}.ar-compare-title:nth-child(2){border-left:1px solid #dce3ed}.ar-compare-row{display:contents}.ar-code-line{min-width:0;overflow:visible;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 ui-monospace,monospace;padding:0 10px;min-height:23px}.ar-code-line:nth-child(2n){border-left:1px solid #dce3ed}.ar-code-line.add{background:#dafbe1;color:#116329}.ar-code-line.remove{background:#ffebe9;color:#82071e}.ar-code-line .num{display:inline-block;min-width:3em;margin-right:10px;text-align:right;color:#8190a4;user-select:none}.ar-review-content{background:#fff;border:1px solid #dfe7f0;border-radius:12px;margin-top:12px;padding:18px}.ar-review-content>h3{margin-top:22px}.ar-review-content p{overflow-wrap:anywhere}@media(max-width:700px){.ar-toolbar>*{flex:1 1 150px}.ar-actions>*{flex:1}.ar-review-page{padding:8px}.ar-code-line{font-size:11px}}`;
   const controls=el('div');controls.className='ar-toolbar';controls.append(problem,feature,state,runHistory);
   const actions=el('div');actions.className='ar-actions';const exportButton=button('导出 XLSX',()=>void exportRows('xlsx')),jsonButton=button('导出 JSON',()=>void exportRows('json'));actions.append(button('刷新云端结果',()=>void reload()),exportButton,jsonButton);
   const sidInput=el('input');sidInput.placeholder='提交 ID';sidInput.inputMode='numeric';sidInput.type='number';sidInput.min='1';sidInput.autocomplete='off';sidInput.setAttribute('aria-label','复核提交 ID');
@@ -2051,7 +2090,7 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   function contextKey(){const c=getContext();return `${c.classId||''}:${c.contest?.id||''}:${c.generation}`;}
   function key(){return contextKey()+':v4:'+runId;}
   function reload(){return options.submissionId?openDetail(options.submissionId):refresh();}
-  function stop(){cursor=null;updateNavigation=()=>{};generation++;controller?.abort();detailVersion++;detailController?.abort();clearTimeout(timer);}
+  function stop(){detailResize?.disconnect();cursor=null;updateNavigation=()=>{};generation++;controller?.abort();detailVersion++;detailController?.abort();clearTimeout(timer);}
   function reset(){stop();scope=null;listDirty=false;listPosition=null;heading.textContent='代码复核';problem.disabled=false;counts=null;rows=[];runs=[];total=page=0;runId='';refill(runHistory,[['latest','最新完整运行']]);detail.hidden=true;detail.replaceChildren();progress.textContent='';message.textContent='读取比赛后，打开代码复核。';draw();}
   function setProblemScope(next){stop();scope=next?{...next,submissionIds:[...next.submissionIds]}:null;page=0;state.value=options.problemList?'all':'queue';feature.value='all';problem.value=scope?.problemId||'all';problem.disabled=!!scope;heading.textContent=scope?`本题提交核查 · ${scope.title}`:'代码复核';detail.hidden=true;detail.replaceChildren();}
   function query(c,offset=page*size,limit=size){return {contest_id:Number(c.contest.id),creator_ids:[...core.members(c.summary.rows).keys()],offset,limit,run_id:runId,...(scope?{problem_id:Number(scope.problemId),submission_ids:scope.submissionIds}:problem.value==='all'?{}:{problem_id:Number(problem.value)}),...(feature.value==='all'?{}:{label:feature.value}),...(options.problemList||state.value==='all'||state.value==='reviewed_no_ai'?{}:{review_queue_only:true}),...(state.value==='queue'||state.value==='all'?{}:{review_status:state.value})};}
@@ -2062,12 +2101,12 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
     stop();const v=generation,k=contextKey(),c=getContext();detail.hidden=true;detail.replaceChildren();
     if(!active||!c.contest||!c.summary){message.textContent='请先读取比赛和榜单。';return;}
     refill(problem,[['all','全部题目'],...c.contest.problems.map(p=>[String(p.id),`${p.label} · ${p.title}`])],scope?.problemId||problem.value);
-    const current=new AbortController();controller=current;const timeout=setTimeout(()=>current.abort(),20000);
+    const current=new AbortController();controller=current;const timeout=setTimeout(()=>current.abort(),120000);
     counts=null;showProgress();rows=[];total=0;draw();message.textContent='正在读取云端复核记录…';
     try{
       const state=await client.progress(c.contest.id,current.signal);if(v!==generation||k!==contextKey())return;
       fillRuns(state.runs);showProgress();if(!runId){message.textContent=runs.length?'新运行待同步，暂无完整发布结果。可从核查运行中查看同步中的历史。':'尚无核查结果，请先在核查系统发布比赛。';return;}
-      accessToken=await ensureReviewAccess(c.contest.id,core);if(v!==generation||k!==contextKey())return;
+      message.textContent='正在核实本场与其他已采集比赛的源码读取权限…';accessToken=await ensureReviewAccess(c.contest.id,core);if(v!==generation||k!==contextKey())return;
       const requestKey=key(),result=await client.search(query(c),current.signal);if(v!==generation||requestKey!==key())return;
       const memberMap=core.members(c.summary.rows);rows=result.reviews.map(r=>({...r,member:memberMap.get(String(r.creator_id))}));total=result.total;counts=result.counts||null;showProgress();
       if(total&&page*size>=total){page=Math.floor((total-1)/size);void refresh();return;}
@@ -2079,7 +2118,7 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   function draw(){
     const top=list.scrollTop,left=list.scrollLeft,table=el('table');table.className='ar-table';const thead=el('thead'),head=el('tr');['提交','学生','题目','提交时间','评测','原始分 / 画像辅助分','代码状态','依据','详情'].forEach(t=>head.append(el('th',t)));thead.append(head);table.append(thead);
     const body=el('tbody');for(const r of rows){const p=getContext().contest?.problems.find(p=>String(p.id)===String(r.problem_id)),tr=el('tr');
-      for(const text of [r.submission_id,`${r.member?.name||r.creator_id} · ${r.member?.studentId||''}`,p?`${p.label} · ${p.title}`:r.problem_id,new Date(r.submitted_at).toLocaleString(),r.evaluation_result||r.judge_result||r.verdict||r.oj_result||r.submission_result||'—',`${core.scoreSummary(r).raw??'—'} / ${r.profile_stale||r.profile_scope_pending?'待更新':r.profile_scores_valid===false?'无可用画像':core.scoreSummary(r).adjusted??'—'}`,judgement(r),r.annotation?r.annotation.reason:(r.result?.label||r.labels||[]).join('；')])tr.append(el('td',text));
+      for(const text of [r.submission_id,`${r.member?.name||r.creator_id} · ${r.member?.studentId||''}`,p?`${p.label} · ${p.title}`:r.problem_id,core.beijingTime(r.submitted_at),r.evaluation_result||r.judge_result||r.verdict||r.oj_result||r.submission_result||'—',`${core.scoreSummary(r).raw??'—'} / ${r.profile_stale||r.profile_scope_pending?'待更新':r.profile_scores_valid===false?'无可用画像':core.scoreSummary(r).adjusted??'—'}`,judgement(r),r.annotation?r.annotation.reason:(r.result?.label||r.labels||[]).join('；')])tr.append(el('td',text));
       const td=el('td');td.append(button('查看 / 修改',()=>void openDetail(r.submission_id)));tr.append(td);body.append(tr);}
     table.append(body);list.replaceChildren(table);list.scrollTop=top;list.scrollLeft=left;pager.replaceChildren(el('span',`共 ${total} 条 · ${page+1} / ${Math.max(1,Math.ceil(total/size))}`));
     const previous=button('上一页',()=>{page--;void refresh();}),next=button('下一页',()=>{page++;void refresh();});previous.disabled=page<=0;next.disabled=(page+1)*size>=total;pager.append(previous,next);
@@ -2099,8 +2138,8 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   async function openDetail(id,continuing=false){
     if(!continuing)cursor=core.reviewCursor(rows,page*size,total);
     if(detail.hidden){const overlay=container.closest('.problem-review-page')||container.closest('.overlay');listPosition={listTop:list.scrollTop,listLeft:list.scrollLeft,overlayTop:overlay?.scrollTop||0};}
-    clearTimeout(timer);const n=++detailVersion,base=contextKey();detail.classList.toggle('ar-review-page',!options.feedbackOnly);detail.hidden=false;detail.replaceChildren(el('p','正在读取复核详情…'));detailController?.abort();
-    const c=new AbortController(),timeout=setTimeout(()=>c.abort(),20000);detailController=c;
+    clearTimeout(timer);detailResize?.disconnect();const n=++detailVersion,base=contextKey();detail.classList.toggle('ar-review-page',!options.feedbackOnly);detail.hidden=false;detail.replaceChildren(el('p','正在读取复核详情…'));detailController?.abort();
+    const c=new AbortController(),timeout=setTimeout(()=>c.abort(),120000);detailController=c;
     const valid=()=>n===detailVersion&&base===contextKey();
     try{
       if(options.submissionId||!runId){const state=await client.submissionRuns(String(id),c.signal);if(!valid())return;fillRuns(state.runs);showProgress();}
@@ -2126,12 +2165,12 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
       const badge=el('span',r?judgement(r):'状态未知');badge.className='ar-state';badge.dataset.state=r?.review_status||'';badge.dataset.reviewJudgement='1';
       const previous=button('上一份',()=>void turn(-1,id)),next=button('下一份',()=>void turn(1,id));
       updateNavigation=()=>{previous.disabled=saving||navigationBusy||!cursor?.has(id,-1);next.disabled=saving||navigationBusy||!cursor?.has(id,1);};updateNavigation();
-      nav.append(previous,next);if(r&&options.loadContestSubmissions)nav.append(button('查看该同学本次比赛提交',()=>void showContestSubmissions(r,valid)));nav.append(badge,close);head.append(title,nav);detail.replaceChildren(head);
+      nav.append(previous,next);if(r&&options.loadContestSubmissions)nav.append(button('查看该同学本次比赛提交',()=>void showContestSubmissions(r,valid)));nav.append(badge,close);head.append(title,nav);detail.replaceChildren(head);if(typeof ResizeObserver==='function'){detailResize=new ResizeObserver(()=>{if(!detail.hidden)detail.style.scrollPaddingTop=Math.ceil(head.getBoundingClientRect().height+12)+'px';});detailResize.observe(head);}
       if(!r){detail.append(el('p',runs.some(run=>run.publication_ready===false)?'新运行待同步，当前完整版本中尚无此提交。':'尚无可用结果。请先在核查系统同步此比赛的源码清单。'));return;}
       const content=el('div');content.className='ar-review-content';detail.append(content);if(selectedRun()?.publication_ready===false)content.append(el('p','历史运行待同步：当前资料尚未完整发布，请以最近一次完整结果为准。'));
       const member=getContext().summary?core.members(getContext().summary.rows).get(String(r.creator_id)):null;
       const problemName=pid=>{const p=getContext().contest?.problems.find(item=>String(item.id)===String(pid));return p?`${p.label} · ${p.title}`:`题目 ${pid}`;};
-      const meta=el('p',`用户 ${member?.name||r.creator_id} · ${problemName(r.problem_id)} · ${new Date(r.submitted_at).toLocaleString()}`);
+      const meta=el('p',`用户 ${member?.name||r.creator_id} · ${problemName(r.problem_id)} · ${core.beijingTime(r.submitted_at)}`);
       content.append(meta,el('p',`评测结果：${r.evaluation_result||r.judge_result||r.verdict||r.oj_result||r.submission_result||'未提供'} · 规则版本：${r.rule_version||'历史运行'}`),el('p','命中事实：'+(r.result?.reason||'无')),el('p','规则特征：'+((r.result?.label||[]).join('；')||'无')));
       renderRuleFacts(content,r);renderScores(content,r);await renderProfile(content,r,c.signal,valid);if(!valid())return;renderEvidenceChain(content,r);
       const compare=el('section');content.append(compare);
@@ -2167,7 +2206,7 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
       for(const e of r.evidence||[])content.append(el('h3',`规则证据${e.start_line?` · 第 ${e.start_line}–${e.end_line||e.start_line} 行`:''}`),pre(e.quote||JSON.stringify(e,null,2)));
       if(r.parse_status&&r.parse_status!=='ok')content.append(el('p','解析状态：'+r.parse_status+'；差异估计可能不可靠，请核对原始源码。'));
       if(r.formatting_only)content.append(el('p','内容未变，单题码风未命中。'));
-      content.append(el('p',`源码校验：${r.code_hash}`));
+      const sourceCheck=el('details');sourceCheck.append(el('summary','源码校验信息'),el('p',`源码 SHA-256：${r.code_hash}`));content.append(sourceCheck);
       await feedbackEditor(r,c.signal,valid);
       if(valid())detail.scrollTop=0;
     }catch(e){if(valid()){const error=el('p',e.name==='AbortError'?'读取超时，请重试。':e.message);if(options.feedbackOnly)detail.replaceChildren(error);else detail.replaceChildren(button('返回列表',()=>void closeDetail(c)),error);}}finally{clearTimeout(timeout);}
@@ -2175,44 +2214,52 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   function sourceLink(id,text){const a=el('a',text||`提交 #${id}`);a.href=core.submissionUrl(id);a.target='_blank';a.rel='noopener noreferrer';return a;}
   function renderRuleFacts(target,r){
     const fact=r.rule_metadata;if(!fact)return;const box=el('section');box.append(el('h3','命中事实与历史解释'));
-    if(fact.change){const change=fact.change;box.append(el('p',`${change.difference_reliable===false?'不可靠的差异估计':'可执行代码差异'}：${((change.change_ratio||0)*100).toFixed(1)}%，增加 ${change.added_tokens??0}、删除 ${change.removed_tokens??0} 个 token；前版 ${change.previous_tokens??0}、当前 ${change.current_tokens??0} 个 token，间隔 ${change.seconds_between??'—'} 秒。`));}
+    if(fact.history_evidence_status==='unavailable')box.append(el('p',fact.history_evidence_explanation||'授权范围不足，部分历史证据暂不可查看。'));
+    if(fact.change?.status==='unavailable')box.append(el('p',fact.change.explanation||'当前无法查看这组历史差异。'));
+    else if(fact.change){const change=fact.change;box.append(el('p',`${change.difference_reliable===false?'不可靠的差异估计':'可执行代码差异'}：${((change.change_ratio||0)*100).toFixed(1)}%，增加 ${change.added_tokens??0}、删除 ${change.removed_tokens??0} 个 token；前版 ${change.previous_tokens??0}、当前 ${change.current_tokens??0} 个 token，间隔 ${change.seconds_between??'—'} 秒。`));}
     if(fact.style?.pure_formatting||fact.style_change?.pure_formatting||fact.style_signals?.pure_formatting||fact.pure_formatting)box.append(el('p','内容未变，单题码风未命中。'));
     if(fact.non_c_language?.candidate)box.append(el('p','CE：非 C 语法直接命中。请结合具体语法和来源作人工结论。'));
-    if(fact.quick_pass){const quick=fact.quick_pass;box.append(el('p',`通过间隔 ${quick.seconds_between??quick.gap_seconds??'未提供'} 秒 · 本题首次尝试 ${quick.first_attempt_at||'未提供'} · 已记录准备 ${quick.preparation_seconds??'未提供'} 秒`));for(const attempt of quick.attempt_timeline||[]){const row=el('p');row.append(sourceLink(attempt.submission_id),` · ${attempt.verdict} · ${attempt.created_at}`);box.append(row);}if(quick.limitation)box.append(el('p',quick.limitation));}
-    if(fact.profile_baseline){const base=fact.profile_baseline;box.append(el('p',`本份代码评估时基线：${base.sufficient?'样本充分':'样本不足'} · ${base.sample_count??0} 份更早代码，覆盖 ${base.problem_count??0} 题`));for(const ref of base.samples||[]){const row=el('p');row.append('更早样本：',sourceLink(ref.submission_id),` · ${ref.submitted_at||ref.created_at||''}`);box.append(row);}}
-    const repeated=fact.repeated_ac;if(repeated){box.append(el('h4','AC 后重复提交时间线'),el('p',repeated.explanation));for(const match of repeated.matches||[]){const row=el('p');row.append(sourceLink(match.earlier_submission_id),` · 早期 AC ${match.earlier_created_at||''} → 当前 AC #${r.submission_id} · ${match.kind==='trace_cleanup'?'清理早期命中痕迹':'向历史风格回归'}`);box.append(row);for(const removed of match.removed_evidence||[])box.append(pre(typeof removed==='string'?removed:JSON.stringify(removed,null,2)));for(const ref of match.historical_style?.baseline_samples||[]){const sample=el('p');sample.append('基线：',sourceLink(ref.submission_id),` · 比赛 ${ref.contest_id} · ${ref.created_at}`);box.append(sample);}}}
+    if(fact.quick_pass?.status==='unavailable')box.append(el('p',fact.quick_pass.explanation||'当前无法查看通过间隔的历史证据。'));
+    else if(fact.quick_pass){const quick=fact.quick_pass;box.append(el('p',`通过间隔 ${quick.seconds_between??quick.gap_seconds??'未提供'} 秒 · 本题首次尝试 ${core.beijingTime(quick.first_attempt_at)} · 已记录准备 ${quick.preparation_seconds??'未提供'} 秒`));for(const attempt of quick.attempt_timeline||[]){const row=el('p');row.append(sourceLink(attempt.submission_id),` · ${attempt.verdict} · ${core.beijingTime(attempt.created_at)}`);box.append(row);}if(quick.limitation)box.append(el('p',quick.limitation));}
+    if(fact.profile_baseline?.status==='unavailable')box.append(el('p',fact.profile_baseline.explanation||'当前无法查看这组参照代码。'));
+    else if(fact.profile_baseline){const base=fact.profile_baseline;box.append(el('p',`本份代码评估时基线：${base.sufficient?'样本充分':'样本不足'} · ${base.sample_count??0} 份更早代码，覆盖 ${base.problem_count??0} 题`));for(const ref of base.samples||[]){const row=el('p');row.append('更早样本：',sourceLink(ref.submission_id),` · ${core.beijingTime(ref.submitted_at||ref.created_at)}`);box.append(row);}}
+    const repeated=fact.repeated_ac;if(repeated){box.append(el('h4','AC 后重复提交时间线'),el('p',repeated.explanation));for(const match of repeated.matches||[]){const row=el('p');row.append(sourceLink(match.earlier_submission_id),` · 早期 AC ${core.beijingTime(match.earlier_created_at)} → 当前 AC #${r.submission_id} · ${match.kind==='trace_cleanup'?'清理早期命中痕迹':'向历史风格回归'}`);box.append(row);for(const removed of match.removed_evidence||[])box.append(pre(typeof removed==='string'?removed:JSON.stringify(removed,null,2)));for(const ref of match.historical_style?.baseline_samples||[]){const sample=el('p');sample.append('基线：',sourceLink(ref.submission_id),` · ${core.contestLabel(ref.contest_id,getContext().contestNames)} · ${core.beijingTime(ref.created_at)}`);box.append(sample);}}}
     box.append(el('p','来源待人工核实；辅助分值只用于解释和排序。'));target.append(box);
   }
   function renderScores(target,r){
-    const score=core.scoreSummary(r),box=el('section');const summary=el('p',`原始分 ${score.raw??'未提供'} · 画像辅助分 ${r.profile_stale||r.profile_scope_pending?'待更新':r.profile_scores_valid===false?'无可用画像':score.adjusted??'未提供'} · 画像版本 ${r.profile_version||r.scoring?.profile_version||'未提供'}`);summary.dataset.scoreSummary='1';box.append(el('h3','辅助分值'),summary);
-    for(const item of r.score_adjustments||r.scoring?.adjustments||[]){const row=el('p',`${item.explanation||item.kind||'调整'}：${item.applied_points??item.points??0} 分`);for(const ref of item.references||[])if(ref.submission_id)row.append(' · ',sourceLink(ref.submission_id));box.append(row);}target.append(box);
+    const score=core.scoreSummary(r),box=el('section');const summary=el('p',`原始分 ${score.raw??'未提供'} · 画像辅助分 ${r.profile_stale||r.profile_scope_pending?'待更新':r.profile_scores_valid===false?'无可用画像':score.adjusted??'未提供'}`);summary.dataset.scoreSummary='1';box.append(el('h3','辅助分值'),summary);
+    for(const item of r.score_adjustments||r.scoring?.adjustments||[]){const row=el('p',`${item.explanation||'历史对照调整'}：${item.applied_points??item.points??0} 分`);for(const ref of item.references||[])if(ref.submission_id)row.append(' · ',sourceLink(ref.submission_id));box.append(row);}target.append(box);
   }
-  async function renderProfile(target,r,signal,valid){
-    const box=el('section');box.className='ar-profile';box.append(el('h3','成员长期画像'));target.append(box);
-    try{const snapshot=await client.profile(r.creator_id,r.contest_id,signal);if(!valid())return;const status=el('p');status.dataset.profileStatus='1';box.append(status);
-      if(!snapshot.profile){status.textContent=snapshot.reason||'暂无可用画像；历史覆盖不足。';return;}
+  async function renderProfile(target,r,signal,valid,existingBox=null){
+    if(!valid())return;const box=existingBox||el('section');box.className='ar-profile';box.replaceChildren(el('h3','这位同学的历史代码'));if(!existingBox)target.append(box);
+    const schedule=()=>{clearTimeout(timer);timer=setTimeout(async()=>{if(!valid())return;try{accessToken=await ensureReviewAccess(r.contest_id,core);if(valid())await renderProfile(target,r,AbortSignal.timeout(15000),valid,box);}catch{if(valid())box.append(el('p','历史资料更新暂未完成，可稍后刷新。'));}},45000);};
+    try{const snapshot=await client.profile(r.creator_id,r.contest_id,signal);if(!valid())return;
+      const titles={...(getContext().contestNames||{}),[getContext().contest?.id]:getContext().contest?.title},status=el('p');status.dataset.profileStatus='1';
+      if(!snapshot.profile){box.append(status);status.textContent='当前可读范围的历史资料尚未汇总，暂时无法比较个人习惯。';const access=typeof reviewAccessCoverage!=='undefined'?reviewAccessCoverage.get(Number(r.contest_id)):null;if(access?.attempted_ids?.length)box.append(el('p',`已验证可读 ${access.verified_ids.length} 场${access.failed_ids.length?`；另 ${access.failed_ids.length} 场尚未取得读取权限或尚未核查`:''}。`));const technical=el('details');technical.append(el('summary','技术详情'),pre(JSON.stringify({status:snapshot.status,reason:snapshot.reason,scope_contest_ids:snapshot.scope_contest_ids},null,2)));box.append(technical);schedule();return;}
       if(String(snapshot.profile.creator_id)!==String(r.creator_id))throw new Error('画像成员与当前代码不一致');
-      status.textContent=`${snapshot.stale?'待更新':snapshot.status==='current'?'已同步':'更新中'} · 截止 ${snapshot.cutoff||'未提供'} · 反馈水位 ${snapshot.feedback_revision??'未提供'}`;
-      const dl=el('dl');for(const [key,value] of [['画像版本',snapshot.version||snapshot.protocol],['快照',snapshot.snapshot_id],['授权比赛',snapshot.scope_contest_ids?.join('、')],['权限覆盖',snapshot.permission_coverage==='full'?'完整':'部分'],['分值状态',snapshot.scores_valid?'有效':'待重算']]){dl.append(el('dt',key),el('dd',value??'未提供'));}box.append(dl);
-      if(!snapshot.scores_valid){const score=target.querySelector('[data-score-summary]');if(score)score.append(' · 画像分值待重算，以上为旧快照');}
-      const summary=snapshot.profile.summary||{},coverage=summary.coverage||{},base=summary.baseline||{};
-      box.append(el('p',`已采集 ${coverage.contest_ids?.length??coverage.contests??0} 场 · ${coverage.source_count??coverage.submissions??0} 份源码 · 解析失败 ${coverage.parse_failed??0} 份`));
-      if(coverage.first_seen||coverage.last_seen)box.append(el('p',`历史范围：${coverage.first_seen||'未提供'} 至 ${coverage.last_seen||'未提供'}`));
-      if(coverage.unknown_teaching_source)box.append(el('p','教学来源未核实。'));
-      const baselineNames={confirmed:'已由人工确认',provisional:'暂定，尚未充分人工确认',insufficient:'样本不足'};
-      box.append(el('p',`长期画像最新基线：${baselineNames[base.status]||'未提供'} · ${base.sample_count??0} 份代码，覆盖 ${base.problem_count??0} 题${base.limitation?' · '+base.limitation:''}`));
-      const sampleBox=el('details');sampleBox.append(el('summary','稳定基线样本'));for(const ref of base.samples||[]){const row=el('p');row.append(sourceLink(ref.submission_id),` · 比赛 ${ref.contest_id} · ${ref.submitted_at||ref.created_at||''}`);sampleBox.append(row);}box.append(sampleBox);
-      for(const [kind,habit] of Object.entries(summary.habits||{})){const group=el('details');group.append(el('summary',`${kind==='input_guard'?'输入失败防护':kind==='comment'?'注释习惯':kind}：${habit.present??0} / ${habit.applicable??0} 份适用样本`));group.append(el('p',`覆盖 ${habit.problem_count??0} 题、${habit.contest_count??0} 场 · 首见 ${habit.first_seen||'无'} · 最近 ${habit.last_seen||'无'}`));for(const ref of habit.samples||[])group.append(sourceLink(ref.submission_id),' ');box.append(group);}
-      const distribution=el('details');distribution.append(el('summary','各场命中与人工结论'));for(const [cid,item] of Object.entries(summary.distribution||{})){const human=item.human_counts||{},score=summary.member_score?.[cid];distribution.append(el('p',`比赛 ${cid}：${item.source_count??0} 份源码，${item.hit_problems??0} 题命中，WA 历史对照 ${item.wa_history??0} 份；无 AI ${human.ordinary??0}、存疑 ${human.uncertain??0}、有 AI ${human.suspected??0}${snapshot.scores_valid&&score?.score!=null?'；成员辅助分 '+score.score:''}`));}box.append(distribution);
-      const refs=el('details');refs.append(el('summary','画像证据索引'));for(const ref of snapshot.profile.evidence||[]){const row=el('p');if(ref.submission_id)row.append(sourceLink(ref.submission_id));row.append(` · 比赛 ${ref.contest_id||'—'} · ${ref.result||ref.evaluation_result||'—'} · ${ref.submitted_at||ref.created_at||''}${ref.annotation?' · '+labels[ref.annotation.status]:''}`);refs.append(row);}box.append(refs);
-    }catch(e){if(valid())box.append(el('p','画像读取失败：'+e.message));}
+      const narrative=core.profileNarrative(snapshot,r.contest_id,titles),summary=snapshot.profile.summary||{},coverage=summary.coverage||{},base=summary.baseline||{};
+      const range=el('p',narrative.range);range.className='ar-profile-range';box.append(range,el('p',narrative.gap));
+      const access=typeof reviewAccessCoverage!=='undefined'?reviewAccessCoverage.get(Number(r.contest_id)):null;
+      if(access?.attempted_ids?.length){const verified=access.verified_ids.length,failed=access.failed_ids.length;box.append(el('p',`已验证可读 ${verified} 场${failed?`；另 ${failed} 场尚未取得读取权限或尚未核查`:''}。`));}
+      status.textContent=snapshot.stale?'助教结论已更新，正在重新汇总历史观察。':snapshot.scope_pending?'新增比赛的历史正在汇总。':narrative.updated;box.append(status);
+      if(!snapshot.scores_valid){const score=target.querySelector('[data-score-summary]');if(score)score.append(' · 历史资料更新后重新计算');}
+      box.append(el('p',narrative.baseline));
+      if(coverage.first_seen||coverage.last_seen)box.append(el('p',`可见提交时间：${core.beijingTime(coverage.first_seen)} 至 ${core.beijingTime(coverage.last_seen)}，均为北京时间。`));
+      for(const observation of narrative.habits){const {habit}=observation,group=el('section');group.append(el('p',observation.text));
+        if(habit.samples?.length){const samples=el('details');samples.append(el('summary','查看对应代码'));for(const ref of habit.samples){const row=el('p');row.append(sourceLink(ref.submission_id),` · ${core.contestLabel(ref.contest_id,titles)} · ${core.beijingTime(ref.submitted_at||ref.created_at)}`);samples.append(row);}group.append(samples);}box.append(group);}
+      box.append(el('p','这些观察描述可见代码中的写法，AI 使用情况仍需结合具体来源核查。'));
+      const sampleBox=el('details');sampleBox.append(el('summary',`查看 ${base.sample_count??0} 份习惯参照代码`));for(const ref of base.samples||[]){const row=el('p');row.append(sourceLink(ref.submission_id),` · ${core.contestLabel(ref.contest_id,titles)} · ${core.beijingTime(ref.submitted_at||ref.created_at)}`);sampleBox.append(row);}box.append(sampleBox);
+      const distribution=el('details');distribution.append(el('summary','按比赛查看规则线索与助教结论'));for(const {label,item,score} of narrative.distribution){const human=item.human_counts||{};distribution.append(el('p',`${label}：${item.source_count??0} 份提交中，${item.hit_problems??0} 道题出现规则线索；助教已判无 AI ${human.ordinary??0} 份、存疑 ${human.uncertain??0} 份、有 AI ${human.suspected??0} 份${snapshot.scores_valid&&score?.score!=null?'。本场辅助分 '+score.score:''}。`));}box.append(distribution);
+      const refs=el('details');refs.append(el('summary','查看其他历史提交'));for(const ref of snapshot.profile.evidence||[]){const row=el('p');if(ref.submission_id)row.append(sourceLink(ref.submission_id));row.append(` · ${core.contestLabel(ref.contest_id,titles)} · ${ref.result||ref.evaluation_result||'评测未提供'} · ${core.beijingTime(ref.submitted_at||ref.created_at)}${ref.annotation?' · 助教判为'+labels[ref.annotation.status]:''}`);refs.append(row);}box.append(refs);
+      const technical=el('details');technical.className='ar-profile-technical';technical.append(el('summary','技术详情'));const dl=el('dl');for(const [key,value] of [['画像版本',snapshot.version||snapshot.protocol],['快照摘要',snapshot.snapshot_id],['反馈水位',snapshot.feedback_revision],['可读比赛 ID',snapshot.scope_contest_ids?.join('、')],['权限快照范围',snapshot.permission_coverage],['分值可用',snapshot.scores_valid?'是':'待重新计算'],['快照截止时间（原始值）',snapshot.cutoff]])dl.append(el('dt',key),el('dd',value??'未提供'));technical.append(dl);box.append(technical);if(snapshot.stale||snapshot.scope_pending||snapshot.status?.startsWith('pending'))schedule();
+    }catch(e){if(valid())box.append(el('p','历史代码暂时无法读取：'+e.message));}
   }
   function renderEvidenceChain(target,r){
     const records=[...(r.evidence_chain||[]),...(r.history_hits||[]),...(r.prior_accepted_submissions||[]),...(r.baseline_references||[])];
     if(!records.length)return;const box=el('details');box.append(el('summary','同题命中与 AC 提交时间线'));
-    for(const ref of records){const row=el('p');if(ref.submission_id)row.append(sourceLink(ref.submission_id));row.append(` · ${ref.judge_result||ref.result||ref.evaluation_result||'历史对照'} · ${ref.submitted_at||''} · ${ref.role||ref.kind||'历史命中'}`);if(ref.code_hash){const hash=el('small',' · SHA-256 '+ref.code_hash);hash.className='ar-evidence-meta';row.append(hash);}if(ref.annotation)row.append(' · '+labels[ref.annotation.status]);box.append(row);}target.append(box);
+    for(const ref of records){const row=el('p');if(ref.submission_id)row.append(sourceLink(ref.submission_id));row.append(` · ${ref.judge_result||ref.result||ref.evaluation_result||'历史对照'} · ${core.beijingTime(ref.submitted_at)} · ${ref.role||ref.kind||'历史命中'}`);if(ref.code_hash){const hash=el('small',' · SHA-256 '+ref.code_hash);hash.className='ar-evidence-meta';row.append(hash);}if(ref.annotation)row.append(' · '+labels[ref.annotation.status]);box.append(row);}target.append(box);
   }
-  async function closeDetail(controller){detailVersion++;controller.abort();detail.hidden=true;detail.replaceChildren();if(listDirty){listDirty=false;await refresh();}if(listPosition){list.scrollTop=listPosition.listTop;list.scrollLeft=listPosition.listLeft;const overlay=container.closest('.problem-review-page')||container.closest('.overlay');if(overlay)overlay.scrollTop=listPosition.overlayTop;listPosition=null;}}
+  async function closeDetail(controller){detailResize?.disconnect();detailVersion++;controller.abort();detail.hidden=true;detail.replaceChildren();if(listDirty){listDirty=false;await refresh();}if(listPosition){list.scrollTop=listPosition.listTop;list.scrollLeft=listPosition.listLeft;const overlay=container.closest('.problem-review-page')||container.closest('.overlay');if(overlay)overlay.scrollTop=listPosition.overlayTop;listPosition=null;}}
   async function turn(direction,id){
     if(navigationBusy||saving||!cursor?.has(id,direction))return;
     const currentCursor=cursor,version=detailVersion,base=contextKey();navigationBusy=true;updateNavigation();
@@ -2391,8 +2438,8 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     prev.disabled = page <= 0; next.disabled = page >= pages - 1;
     target.append(el('span', `共 ${count} 条 · ${page + 1} / ${pages}`, 'muted'), prev, next);
   }
-  const reviewPanel=createAiReviewPanel($('#review-pane'),reviewCore,()=>({classId:currentId,className:selected()?.name,contest,summary,generation}),null,{loadContestSubmissions:reviewContestSubmissions});
-  const problemReviewPanel=createAiReviewPanel($('#problem-review-content'),reviewCore,()=>({classId:currentId,className:selected()?.name,contest,summary,generation}),null,{problemList:true,loadContestSubmissions:reviewContestSubmissions});
+  const reviewPanel=createAiReviewPanel($('#review-pane'),reviewCore,()=>({classId:currentId,className:selected()?.name,contest,summary,generation,contestNames:Object.fromEntries([...$('#contest-select').options].filter(option=>/^\d+$/.test(option.value)).map(option=>[option.value,option.textContent]))}),null,{loadContestSubmissions:reviewContestSubmissions});
+  const problemReviewPanel=createAiReviewPanel($('#problem-review-content'),reviewCore,()=>({classId:currentId,className:selected()?.name,contest,summary,generation,contestNames:Object.fromEntries([...$('#contest-select').options].filter(option=>/^\d+$/.test(option.value)).map(option=>[option.value,option.textContent]))}),null,{problemList:true,loadContestSubmissions:reviewContestSubmissions});
   function resetContest() {
     reviewPanel.reset();
     problemReviewPanel.setActive(false);problemReviewPanel.reset();$('#problem-review-page').hidden=true;

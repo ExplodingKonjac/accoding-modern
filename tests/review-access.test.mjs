@@ -61,3 +61,30 @@ test('missing greeting reads the signed-in profile before issuing a cloud challe
   context.document={querySelector:()=>({}),querySelectorAll:()=>[{textContent:'个人信息',getAttribute:()=>'/user/123/index'}]};
   await assert.rejects(()=>vm.runInContext(script+';ensureReviewAccess(1309,{})',context),/challenge-name-verified/);
 });
+
+function unionContext({failIds=[],combineFails=false}={}){
+  const calls=[],links=[{textContent:'欢迎，测试助教',getAttribute:()=>'/user/123/index'}],group=[1,2,3],core={sourceVariants:()=>['source'],courseContests:()=>group.map(id=>({id})),collectedContests:()=>[...group,4].map(id=>({id}))};
+  const context=vm.createContext({document:{querySelector:()=>({}),querySelectorAll:()=>links},Map,Number,Date,Error,Promise,TextEncoder,Uint8Array,AbortSignal,crypto:webcrypto,core,
+    DOMParser:class{parseFromString(){return {querySelector:()=>({textContent:'source'})};}},fetch:async(url,init)=>{
+      const body=init?.body?JSON.parse(init.body):null;calls.push({url,init,body});if(url.startsWith('/submission/'))return {ok:true,text:async()=>'SOURCE'};
+      if(url.endsWith('/challenge'))return failIds.includes(body.contest_id)?{ok:false,json:async()=>({detail:'没有读取权限'})}:{ok:true,json:async()=>({challenge_id:String(body.contest_id),nonce:'nonce',submission_ids:['11','12','13']})};
+      if(url.endsWith('/verify'))return {ok:true,json:async()=>({contest_id:Number(body.challenge_id),token:'proof-'+body.challenge_id,expires:Date.now()/1000+3600})};
+      assert.ok(url.endsWith('/combine'));return combineFails?{ok:false,json:async()=>({detail:'合并失败'})}:{ok:true,json:async()=>({token:'combined',contest_ids:body.tokens.map(token=>Number(token.slice(6))),expires:Date.now()/1000+3600})};
+    }});vm.runInContext(script,context);return {context,calls};
+}
+
+test('cross-contest access combines only successfully verified proof tokens and caches source proofs',async()=>{
+  const {context,calls}=unionContext({failIds:[3]});assert.equal(await vm.runInContext('ensureReviewAccess(1,core)',context),'combined');
+  const combined=calls.find(call=>call.url.endsWith('/combine'));assert.deepEqual(combined.body.tokens,['proof-1','proof-2','proof-4']);
+  const coverage=vm.runInContext('reviewAccessCoverage.get(1)',context);assert.deepEqual([...coverage.verified_ids],[1,2,4]);assert.deepEqual([...coverage.failed_ids],[3]);
+  const firstReads=calls.filter(call=>call.url.startsWith('/submission/')).length;
+  assert.equal(await vm.runInContext('ensureReviewAccess(1,core)',context),'combined');assert.equal(calls.filter(call=>call.url.startsWith('/submission/')).length,firstReads);
+  assert.equal(calls.filter(call=>call.url.endsWith('/combine')).length,1);
+  assert.ok(calls.filter(call=>call.url.startsWith('https://')).every(call=>call.init.credentials==='omit'&&!('Cookie' in call.init.headers)));
+});
+
+test('one valid proof or a failed combine retains the current contest scope',async()=>{
+  const single=unionContext({failIds:[2,3,4]});assert.equal(await vm.runInContext('ensureReviewAccess(1,core)',single.context),'proof-1');assert.equal(single.calls.some(call=>call.url.endsWith('/combine')),false);
+  const failure=unionContext({combineFails:true});const tokens=await vm.runInContext('Promise.all([ensureReviewAccess(1,core),ensureReviewAccess(2,core)])',failure.context);assert.deepEqual([...tokens],['proof-1','proof-2']);
+  assert.equal(vm.runInContext('reviewAccessCoverage.get(1).combine_error',failure.context),true);
+});

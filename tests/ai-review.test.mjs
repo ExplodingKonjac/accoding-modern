@@ -234,3 +234,24 @@ test('legacy runs remain ready by default and ISO run timestamps sort chronologi
   assert.equal(core.selectReviewRun([older,newer]).selected.run_id,'a');
   assert.equal(core.selectReviewRun([{...newer,publication_ready:false},older]).selected.run_id,'z');
 });
+
+test('profile summary uses course names, Beijing time and an explicit single-contest coverage gap',()=>{
+  const snapshot={scope_contest_ids:[1327],permission_coverage:'full',cutoff:'2026-10-16T08:10:48Z',profile:{summary:{coverage:{contest_ids:[1327],source_count:10},baseline:{status:'provisional',sample_count:6,problem_count:6},habits:{comment:{present:0,applicable:6},input_guard:{present:0,applicable:6}}}}};
+  const narrative=core.profileNarrative(snapshot,1327);
+  assert.match(narrative.range,/C语言 C4.*10 份/);assert.match(narrative.gap,/仅能查看这一场.*跨场习惯还无法判断/);
+  assert.match(narrative.baseline,/目前用于描述习惯.*6 份.*6 题.*尚未经人工确认/);
+  assert.match(narrative.habits[0].text,/6 份可比较.*0 份包含说明性注释/);
+  assert.match(narrative.habits[1].text,/6 份可比较.*0 份包含额外输入失败检查/);
+  assert.match(narrative.updated,/2026-10-16 16:10:48.*北京时间/);
+  assert.doesNotMatch([narrative.range,narrative.gap,narrative.baseline,narrative.updated].join(''),/1327|UTC|反馈水位|完整长期/);
+});
+
+test('profile coverage distinguishes uncollected scope, pending rebuild and inapplicable samples',()=>{
+  const snapshot={scope_contest_ids:[1319,1327],scope_pending:true,cutoff:1,profile:{summary:{coverage:{contest_ids:[1319,1327],source_count:12,parse_failed:2},baseline:{status:'insufficient',sample_count:1,problem_count:1},habits:{input_guard:{present:0,applicable:0}}}}};
+  const narrative=core.profileNarrative(snapshot,1327);
+  assert.match(narrative.gap,/C语言 C1、C语言 C2尚未计入/);assert.match(narrative.gap,/正在汇总/);assert.match(narrative.gap,/2 份.*未用于习惯比较/);
+  assert.match(narrative.baseline,/暂不能形成稳定对照/);assert.match(narrative.habits[0].text,/暂无可用于比较输入检查/);
+  assert.equal(core.contestLabel(1299),'程序设计基础 C1');assert.equal(core.contestLabel(1304),'程序设计基础 E1');
+  assert.equal(core.beijingTime('2026-10-16T08:10:48Z'),'2026-10-16 16:10:48');assert.equal(core.beijingTime('invalid'),'时间未提供');
+  assert.equal(new Set(core.collectedContests().map(item=>item.id)).size,10);
+});

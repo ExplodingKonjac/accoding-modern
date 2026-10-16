@@ -9,6 +9,30 @@ export function createAiReviewCore() {
   const humanLabels={ordinary:'无 AI',uncertain:'存疑',suspected:'有 AI'};
   const reviewStates={rule_unmatched:'规则未命中',rule_hit_unreviewed:'规则命中/未核查',reviewed_no_ai:'已核查为无AI',reviewed_uncertain:'已核查为存疑',reviewed_ai:'已核查为AI'};
   const legacyFeatureLabels=['长变量命名','函数与变量命名'];
+  const courseGroups=[{course:'C语言',ids:[1305,1312,1319,1327]},{course:'程序设计基础',ids:[1299,1309,1315,1323,1304,1310]}];
+  function courseContests(contestId){const group=courseGroups.find(item=>item.ids.includes(Number(contestId)));return group?group.ids.map((id,index)=>({id,label:`${group.course} ${index<4?'C'+(index+1):'E'+(index-3)}`})):[];}
+  function collectedContests(){return courseGroups.flatMap(group=>courseContests(group.ids[0]));}
+  function contestLabel(contestId,titles={}){const known=courseGroups.flatMap(group=>courseContests(group.ids[0])).find(item=>String(item.id)===String(contestId));return known?.label||titles[contestId]||'其他比赛';}
+  function beijingTime(value,empty='时间未提供'){
+    if(value==null||value==='')return empty;const number=typeof value==='number'||/^\d+(?:\.\d+)?$/.test(String(value))?Number(value):null;
+    const date=new Date(number==null?value:number<1e12?number*1000:number);if(!Number.isFinite(date.getTime()))return empty;
+    const parts=Object.fromEntries(new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(date).map(item=>[item.type,item.value]));
+    return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+  }
+  function profileNarrative(snapshot,currentContestId,titles={}){
+    const summary=snapshot.profile?.summary||{},coverage=summary.coverage||{},base=summary.baseline||{},scope=(snapshot.scope_contest_ids||[]).map(Number),ids=(coverage.contest_ids||scope).map(Number),course=courseContests(currentContestId),missing=course.filter(item=>!scope.includes(item.id));
+    const names=ids.map(id=>contestLabel(id,titles));
+    const range=`当前画像包含${names.length?names.join('、'):'当前可查看比赛'}的 ${coverage.source_count??coverage.submissions??0} 份提交代码。`;
+    let gap=scope.length<=1?'本次仅能查看这一场比赛，其他比赛的历史尚未计入，跨场习惯还无法判断。':missing.length?`${missing.map(item=>item.label).join('、')}尚未计入；以下观察只依据当前可查看的比赛。`:'以上范围仅限已授权且已采集的比赛。';
+    if(snapshot.scope_pending)gap+=' 新增比赛的历史正在汇总，画像和辅助分值待更新。';
+    else if(snapshot.stale)gap+=' 人工结论已更新，历史观察和辅助分值正在重新计算。';
+    if(coverage.parse_failed)gap+=` 其中 ${coverage.parse_failed} 份代码未能可靠分析，未用于习惯比较。`;
+    const count=base.sample_count??0,problems=base.problem_count??0;
+    const confirmation=base.status==='confirmed'?'这些代码已由助教核查为无 AI。':base.status==='provisional'?'这些代码尚未经人工确认。':'可比较的历史代码不足，暂不能形成稳定对照。';
+    const baseline=`目前用于描述习惯的参照代码：${count} 份，覆盖 ${problems} 题。${confirmation}`;
+    const habits=Object.entries(summary.habits||{}).map(([kind,habit])=>({kind,habit,text:habit.applicable?`${habit.applicable} 份可比较的代码中，${habit.present??0} 份${kind==='input_guard'?'包含额外输入失败检查':kind==='comment'?'包含说明性注释':'具有这项写法'}。`:`暂无可用于比较${kind==='input_guard'?'输入检查':kind==='comment'?'说明性注释':'这项写法'}的代码。`}));
+    return {range,gap,baseline,habits,updated:`统计更新至 ${beijingTime(snapshot.cutoff)}（北京时间）。`,distribution:Object.entries(summary.distribution||{}).map(([id,item])=>({label:contestLabel(id,titles),item,score:summary.member_score?.[id]}))};
+  }
   function selectReviewRun(values,preferred='latest'){
     const moment=run=>{const numeric=Number(run.created_at);return Number.isFinite(numeric)?numeric:(Date.parse(run.created_at)||0);};
     const runs=[...values].sort((a,b)=>moment(b)-moment(a)||b.run_id.localeCompare(a.run_id));
@@ -89,8 +113,8 @@ export function createAiReviewCore() {
       saveFeedback:(body,signal)=>{humanState(body.status);if(typeof body.reason!=='string'||!body.reason.trim())throw new Error('请填写核查理由');return request('/feedback',body,signal);},
       exportEvidence:(runId,offset=0,signal)=>request(`/runs/${encodeURIComponent(runId)}/evidence/export?offset=${offset}&limit=200`,null,signal),
       exportFeedback:(contest,after=0,signal)=>request(`/contests/${encodeURIComponent(contest)}/feedback/export?after=${after}`,null,signal),
-      progress:(contest,signal)=>runs(`/contests/${encodeURIComponent(contest)}/progress`,signal,contest),
-      submissionRuns:(id,signal)=>runs(`/submissions/${encodeURIComponent(id)}/runs${version===4?'?include_candidates=true':''}`,signal),
+      progress:(contest,signal)=>runs(`/contests/${encodeURIComponent(contest)}/progress${version===4?'?include_unpublished=true':''}`,signal,contest),
+      submissionRuns:(id,signal)=>runs(`/submissions/${encodeURIComponent(id)}/runs${version===4?'?include_candidates=true&include_unpublished=true':''}`,signal),
       async detail(id,runId,signal){if(!runId)throw new Error('请先选择核查运行');const r=await request(`/runs/${encodeURIComponent(runId)}/submissions/${encodeURIComponent(id)}${version===4?'?include_candidates=true':''}`,null,signal,true);if(r&&(r.run_id!==runId||String(r.submission_id)!==String(id)))throw new Error('复核详情与所选运行或提交不一致');if(r&&!(version===4?hasReviewRecord(r):hasFeatureReview(r)))throw new Error('复核结果包含当前插件不支持的规则或格式，请更新插件后重试');if(r&&typeof r.code==='string')await verifySource(r.code,r.code_hash);return r;},
       async search(query,signal){
         if(!query.run_id)throw new Error('请先选择核查运行');const r=await request('/reviews/search',version===4?{...query,include_candidates:true,include_all:true}:query,signal);
@@ -130,5 +154,5 @@ export function createAiReviewCore() {
     }
     solve(a,b,1,1);return output;
   }
-  return {selectReviewRun,humanLabels,humanState,feedbackPacket,inReviewFilter,scoreSummary,submissionUrl,exportTables,reviewCursor,lineDiff,api,apiV3,apiV4,selections,states,reviewStates,featureLabels,members,hasFlaggedReview,hasFeatureReview,hasReviewRecord,verifySource,sourceVariants,sourceFromOj,client,featureClient};
+  return {collectedContests,courseContests,contestLabel,beijingTime,profileNarrative,selectReviewRun,humanLabels,humanState,feedbackPacket,inReviewFilter,scoreSummary,submissionUrl,exportTables,reviewCursor,lineDiff,api,apiV3,apiV4,selections,states,reviewStates,featureLabels,members,hasFlaggedReview,hasFeatureReview,hasReviewRecord,verifySource,sourceVariants,sourceFromOj,client,featureClient};
 }
