@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.20.3
+// @version      1.20.4
 // @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @include      https://accoding-4000.e1.buaa.edu.cn/*
@@ -23,7 +23,7 @@
 
 (() => {
 'use strict';
-const ACCODING_MODERN_VERSION="1.20.3";
+const ACCODING_MODERN_VERSION="1.20.4";
 // Runtime URL compatibility for the direct site and BUAA VPN reverse proxy.
 // The VPN keeps the upstream app under /https-4000/<opaque-token>/, so absolute
 // root requests and pathname checks must be evaluated relative to that prefix.
@@ -1865,6 +1865,8 @@ function createAiReviewCore() {
     };
   }
   function featureClient(getToken,fetcher=fetch,version=3){
+    const sourceCache=new Map(),referenceRuns=new Map();
+    const remember=(cache,key,value)=>{cache.delete(key);cache.set(key,value);if(cache.size>128)cache.delete(cache.keys().next().value);return value;};
     async function request(path,body,signal,absent=false,write=false){
       const token=version===4&&!write?'':getToken().trim();if(version!==4&&!token)throw new Error('请先在复核设置中填写只读令牌。');
       const res=await fetcher((version===4?apiV4:apiV3)+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(version===4?{'X-Review-State-Protocol':'2'}:{}),...(body?{'Content-Type':'application/json'}:{})},credentials:'omit',cache:'no-store',signal,body:body?JSON.stringify(body):undefined});
@@ -1873,7 +1875,47 @@ function createAiReviewCore() {
       return res.json();
     }
     async function runs(path,signal,contest){const r=await request(path,null,signal);if(!Array.isArray(r.runs)||r.runs.some(x=>typeof x.run_id!=='string'||(Object.hasOwn(x,'publication_ready')&&typeof x.publication_ready!=='boolean')||!hash(x.configuration_sha256)||(contest!==undefined&&x.contest_id!==Number(contest))))throw new Error('运行清单格式或比赛不一致');return r;}
+    async function referenceSource(ref,current,signal){
+      signal?.throwIfAborted();
+      const id=String(ref?.submission_id||''),author=String(current?.creator_id||'');
+      if(!/^[1-9]\d*$/.test(id)||!hash(ref?.code_hash)||!author)throw new Error('历史对照缺少有效的提交身份或源码校验信息');
+      const locator=typeof ref.source_locator==='object'&&ref.source_locator!==null?ref.source_locator.run_id:ref.source_locator;
+      if(ref.source_locator!=null&&(typeof locator!=='string'||!locator))throw new Error('历史对照运行编号无效');
+      if(ref.run_id&&locator&&ref.run_id!==locator)throw new Error('历史对照运行编号不一致');
+      const explicit=ref.run_id||locator;
+      if(explicit!=null&&(typeof explicit!=='string'||!explicit||!/^[\w.-]+$/.test(explicit)))throw new Error('历史对照运行编号无效');
+      const sameContest=ref.contest_id!=null&&String(ref.contest_id)===String(current.contest_id);
+      const hinted=explicit||(sameContest?current.run_id:null),attempted=new Set();
+      function verify(source,run){
+        if(!source||String(source.submission_id)!==id||source.code_hash!==ref.code_hash||String(source.creator_id)!==author
+          ||(ref.creator_id!=null&&String(source.creator_id)!==String(ref.creator_id))
+          ||(ref.contest_id!=null&&String(source.contest_id)!==String(ref.contest_id))
+          ||(ref.problem_id!=null&&String(source.problem_id)!==String(ref.problem_id))
+          ||(run.contest_id!=null&&String(source.contest_id)!==String(run.contest_id))
+          ||(source.run_id!=null&&source.run_id!==run.run_id)
+          ||! /^[1-9]\d*$/.test(String(source.problem_id))||! /^[1-9]\d*$/.test(String(source.contest_id)))throw new Error('历史对照的提交、源码哈希、作者或题目与冻结记录不一致');
+        return {...source,run_id:run.run_id};
+      }
+      async function read(run){
+        signal?.throwIfAborted();attempted.add(run.run_id);
+        const key=version+':'+(version===4?'public':getToken().trim())+':'+run.run_id+':'+id+':'+ref.code_hash;
+        if(sourceCache.has(key))return verify(sourceCache.get(key),run);
+        const source=await request(`/runs/${encodeURIComponent(run.run_id)}/sources/${encodeURIComponent(id)}`,null,signal);
+        signal?.throwIfAborted();const result=verify(source,run);remember(sourceCache,key,source);return result;
+      }
+      if(hinted){try{return await read({run_id:hinted,contest_id:ref.contest_id});}catch(error){if(error.httpStatus!==404)throw error;}}
+      const scopeKey=version+':'+(version===4?'public':getToken().trim())+':'+id;
+      let found=referenceRuns.get(scopeKey);
+      if(!found||Date.now()-found.at>30000){
+        const packet=await runs(`/submissions/${encodeURIComponent(id)}/runs${version===4?'?include_candidates=true&include_unpublished=true':''}`,signal);
+        signal?.throwIfAborted();found={at:Date.now(),runs:packet.runs};if(packet.runs.length)remember(referenceRuns,scopeKey,found);
+      }
+      const choices=selectReviewRun(found.runs).runs.filter(run=>run.publication_ready!==false&&!attempted.has(run.run_id)&&(ref.contest_id==null||String(run.contest_id)===String(ref.contest_id)));
+      for(const run of choices){try{return await read(run);}catch(error){if(error.httpStatus!==404)throw error;}}
+      throw new Error('尚无可读取的历史冻结快照，请稍后重试或打开原提交');
+    }
     return {
+      referenceSource,
       session:(signal,write=false)=>request('/feedback/session',null,signal,false,write),
       profile:(creatorId,contestId,signal)=>request(`/profiles/${encodeURIComponent(creatorId)}?site=${encodeURIComponent('https://accoding.buaa.edu.cn:4000')}&contest_id=${encodeURIComponent(contestId)}`,null,signal),
       source:(id,runId,signal)=>request(`/runs/${encodeURIComponent(runId)}/sources/${encodeURIComponent(id)}`,null,signal),
@@ -2180,34 +2222,44 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
       content.append(meta,el('p',`评测结果：${r.evaluation_result||r.judge_result||r.verdict||r.oj_result||r.submission_result||'未提供'} · 规则版本：${r.rule_version||'历史运行'}`),el('p','命中事实：'+(r.result?.reason||'无')),el('p','规则特征：'+((r.result?.label||[]).join('；')||'无')));
       renderRuleFacts(content,r);renderScores(content,r);launchProfile(content,r,c.signal,valid);renderEvidenceChain(content,r);
       const compare=el('section'),editorTarget=el('section');content.append(compare,editorTarget);const editorReady=feedbackEditor(r,c.signal,valid,editorTarget).catch(error=>{if(valid())editorTarget.append(el('p','人工核查读取失败：'+error.message));});
-      const snapshots=[];
-      if(r.context_references?.length){
-        for(const ref of r.context_references||[]){
-          if(String(ref.submission_id)===String(id))continue;
-          try{const source=await client.source(ref.submission_id,r.run_id,c.signal);if(!valid())return;
-            if(String(source.creator_id)===String(r.creator_id)&&source.code_hash===ref.code_hash)
-              snapshots.push({id:ref.submission_id,hash:ref.code_hash,problemId:source.problem_id,kind:String(source.problem_id)!==String(r.problem_id)?'cross':((r.result?.label||[]).includes('AC 后重复提交码风变化')?'early_ac':'previous'),result:source.evaluation_result,submittedAt:source.submitted_at});
-          }catch(e){if(!valid())return;compare.append(el('p',`历史对照 #${ref.submission_id} 的题目信息读取失败：${e.message}`));}
-        }
+      const snapshots=[],seenSnapshots=new Set();
+      for(const ref of [...(r.context_references||[]),...(r.history_hits||[]),...(r.prior_accepted_submissions||[]),...(r.baseline_references||[]),...(r.evidence_chain||[]),...(r.previous_submission?[{...r.previous_submission,kind:'previous'}]:[])]){
+        if(!ref.submission_id||!ref.code_hash||String(ref.submission_id)===String(id))continue;
+        const key=String(ref.submission_id)+':'+ref.code_hash;if(seenSnapshots.has(key))continue;seenSnapshots.add(key);snapshots.push(ref);
       }
-      for(const ref of [...(r.history_hits||[]),...(r.prior_accepted_submissions||[]),...(r.baseline_references||[]),...(r.evidence_chain||[])]){if(ref.submission_id&&ref.code_hash&&String(ref.submission_id)!==String(id)&&!snapshots.some(item=>String(item.id)===String(ref.submission_id)))snapshots.push({id:ref.submission_id,hash:ref.code_hash,problemId:ref.problem_id||r.problem_id,kind:ref.role||ref.kind||'history',result:ref.judge_result||ref.result,submittedAt:ref.submitted_at});}
-      const prior=r.previous_submission;
-      if(prior&&!snapshots.some(item=>String(item.id)===String(prior.submission_id)))snapshots.push({id:prior.submission_id,hash:prior.code_hash,problemId:prior.problem_id,kind:'previous',result:prior.result||prior.judge_result,submittedAt:prior.submitted_at});
-      if(!snapshots.length)compare.append(comparison(null,r.code,null,id));
-      else{
-        const nav=el('div');nav.className='ar-review-nav';const view=el('div'),position=el('span');let snapshotPage=0,snapshotVersion=0;
-        const backward=button('上一份对照',()=>void showSnapshot(snapshotPage-1)),forward=button('下一份对照',()=>void showSnapshot(snapshotPage+1));
-        nav.append(backward,position,forward);compare.append(nav,view);
-        async function showSnapshot(nextPage){if(nextPage<0||nextPage>=snapshots.length)return;snapshotPage=nextPage;const version=++snapshotVersion,item=snapshots[nextPage];
-          backward.disabled=nextPage===0;forward.disabled=nextPage===snapshots.length-1;
-          position.textContent=`右侧快照 ${nextPage+1} / ${snapshots.length}`;
-          const roleNames={cross:'跨题码风对照',previous:'同题上次提交',history:'较早命中',prior_ac:'前一份 AC',baseline:'稳定基线',early_ac:'早期 AC'};const label=`${roleNames[item.kind]||item.kind} · ${problemName(item.problemId)} · 提交 #${item.id}${item.result?' · '+item.result:''}`;
-          view.replaceChildren(el('p',`正在读取${label}…`));
-          try{const before=await readOj(item.id,item.hash,c.signal);if(!valid()||version!==snapshotVersion)return;
-            view.replaceChildren(el('p',`${item.submittedAt?new Date(item.submittedAt).toLocaleString()+' · ':''}源码 SHA-256：${item.hash}`),comparison(before,r.code,item.id,id,{diff:item.kind!=='cross',rightTitle:label}));
-          }catch(e){if(!valid()||version!==snapshotVersion)return;view.replaceChildren(el('p',`${label}读取失败：${e.message}`),comparison(null,r.code,null,id,{rightTitle:label}));}
+      const currentView=el('div');currentView.dataset.currentSource='1';currentView.append(comparison(null,r.code,null,id,{rightTitle:snapshots.length?'展开历史代码对照后显示参考源码':undefined}));compare.append(currentView);
+      if(snapshots.length){
+        const history=el('details');history.dataset.historyComparison='1';history.append(el('summary',`历史代码对照（${snapshots.length} 份，展开查看）`));
+        const nav=el('div');nav.className='ar-review-nav';const view=el('div'),position=el('span');view.dataset.historyView='1';view.setAttribute('aria-live','polite');let snapshotPage=0,snapshotVersion=0,historyController=null;
+        const loaded=new Map(),backward=button('上一份对照',()=>void showSnapshot(snapshotPage-1)),forward=button('下一份对照',()=>void showSnapshot(snapshotPage+1));
+        backward.disabled=true;forward.disabled=snapshots.length===1;position.textContent=`历史对照 1 / ${snapshots.length}`;
+        nav.append(backward,position,forward);history.append(nav,view);compare.append(history);
+        history.addEventListener('toggle',()=>{
+          if(!valid())return;currentView.hidden=history.open;
+          if(history.open)void showSnapshot(snapshotPage);
+          else{snapshotVersion++;historyController?.abort();}
+        });
+        async function showSnapshot(nextPage){
+          if(!valid()||!history.open||nextPage<0||nextPage>=snapshots.length)return;
+          snapshotPage=nextPage;const version=++snapshotVersion,ref=snapshots[nextPage];historyController?.abort();historyController=new AbortController();
+          const signal=AbortSignal.any([c.signal,historyController.signal,AbortSignal.timeout(20000)]),visible=()=>valid()&&history.open&&version===snapshotVersion;
+          backward.disabled=nextPage===0;forward.disabled=nextPage===snapshots.length-1;position.textContent=`历史对照 ${nextPage+1} / ${snapshots.length}`;view.dataset.historySubmission=String(ref.submission_id);
+          view.replaceChildren(el('p',`正在读取历史提交 #${ref.submission_id}…`));
+          try{
+            let cached=loaded.get(nextPage);
+            if(!cached){const source=await client.referenceSource(ref,r,signal);if(!visible())return;
+              const before=await readOj(ref.submission_id,ref.code_hash,signal);if(!visible())return;cached={source,before};loaded.set(nextPage,cached);}
+            if(!visible())return;const {source,before}=cached;
+            const cross=String(source.problem_id)!==String(r.problem_id),kind=cross?'cross':ref.kind||ref.role||'previous';
+            const roleNames={cross:'跨题码风对照',previous:'同题上次提交',history:'较早命中',prior_ac:'前一份 AC',baseline:'稳定基线',early_ac:'早期 AC'};
+            const title=String(source.contest_id)===String(r.contest_id)?problemName(source.problem_id):`题目 ${source.problem_id}`;
+            const label=`${roleNames[kind]||'历史提交'} · ${core.contestLabel(source.contest_id,getContext().contestNames)} · ${title} · 提交 #${ref.submission_id}${source.evaluation_result?' · '+source.evaluation_result:''}`;
+            view.replaceChildren(el('p',`${core.beijingTime(source.submitted_at)} · 源码 SHA-256：${ref.code_hash}`),comparison(before,r.code,ref.submission_id,id,{diff:!cross,rightTitle:label}));
+          }catch(error){
+            if(!visible())return;const notice=el('p',error.name==='AbortError'?'历史对照读取超时，请重试。':'历史对照暂时无法读取：'+error.message);notice.setAttribute('role','status');
+            view.replaceChildren(notice,button('重试',()=>void showSnapshot(nextPage)),sourceLink(ref.submission_id,'打开历史原提交'),comparison(null,r.code,null,id,{rightTitle:'历史源码暂不可用'}));
+          }
         }
-        await showSnapshot(0);if(!valid())return;
       }
       for(const e of r.evidence||[])content.append(el('h3',`规则证据${e.start_line?` · 第 ${e.start_line}–${e.end_line||e.start_line} 行`:''}`),pre(e.quote||JSON.stringify(e,null,2)));
       if(r.parse_status&&r.parse_status!=='ok')content.append(el('p','解析状态：'+r.parse_status+'；差异估计可能不可靠，请核对原始源码。'));

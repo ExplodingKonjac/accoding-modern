@@ -114,34 +114,44 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
       content.append(meta,el('p',`评测结果：${r.evaluation_result||r.judge_result||r.verdict||r.oj_result||r.submission_result||'未提供'} · 规则版本：${r.rule_version||'历史运行'}`),el('p','命中事实：'+(r.result?.reason||'无')),el('p','规则特征：'+((r.result?.label||[]).join('；')||'无')));
       renderRuleFacts(content,r);renderScores(content,r);launchProfile(content,r,c.signal,valid);renderEvidenceChain(content,r);
       const compare=el('section'),editorTarget=el('section');content.append(compare,editorTarget);const editorReady=feedbackEditor(r,c.signal,valid,editorTarget).catch(error=>{if(valid())editorTarget.append(el('p','人工核查读取失败：'+error.message));});
-      const snapshots=[];
-      if(r.context_references?.length){
-        for(const ref of r.context_references||[]){
-          if(String(ref.submission_id)===String(id))continue;
-          try{const source=await client.source(ref.submission_id,r.run_id,c.signal);if(!valid())return;
-            if(String(source.creator_id)===String(r.creator_id)&&source.code_hash===ref.code_hash)
-              snapshots.push({id:ref.submission_id,hash:ref.code_hash,problemId:source.problem_id,kind:String(source.problem_id)!==String(r.problem_id)?'cross':((r.result?.label||[]).includes('AC 后重复提交码风变化')?'early_ac':'previous'),result:source.evaluation_result,submittedAt:source.submitted_at});
-          }catch(e){if(!valid())return;compare.append(el('p',`历史对照 #${ref.submission_id} 的题目信息读取失败：${e.message}`));}
-        }
+      const snapshots=[],seenSnapshots=new Set();
+      for(const ref of [...(r.context_references||[]),...(r.history_hits||[]),...(r.prior_accepted_submissions||[]),...(r.baseline_references||[]),...(r.evidence_chain||[]),...(r.previous_submission?[{...r.previous_submission,kind:'previous'}]:[])]){
+        if(!ref.submission_id||!ref.code_hash||String(ref.submission_id)===String(id))continue;
+        const key=String(ref.submission_id)+':'+ref.code_hash;if(seenSnapshots.has(key))continue;seenSnapshots.add(key);snapshots.push(ref);
       }
-      for(const ref of [...(r.history_hits||[]),...(r.prior_accepted_submissions||[]),...(r.baseline_references||[]),...(r.evidence_chain||[])]){if(ref.submission_id&&ref.code_hash&&String(ref.submission_id)!==String(id)&&!snapshots.some(item=>String(item.id)===String(ref.submission_id)))snapshots.push({id:ref.submission_id,hash:ref.code_hash,problemId:ref.problem_id||r.problem_id,kind:ref.role||ref.kind||'history',result:ref.judge_result||ref.result,submittedAt:ref.submitted_at});}
-      const prior=r.previous_submission;
-      if(prior&&!snapshots.some(item=>String(item.id)===String(prior.submission_id)))snapshots.push({id:prior.submission_id,hash:prior.code_hash,problemId:prior.problem_id,kind:'previous',result:prior.result||prior.judge_result,submittedAt:prior.submitted_at});
-      if(!snapshots.length)compare.append(comparison(null,r.code,null,id));
-      else{
-        const nav=el('div');nav.className='ar-review-nav';const view=el('div'),position=el('span');let snapshotPage=0,snapshotVersion=0;
-        const backward=button('上一份对照',()=>void showSnapshot(snapshotPage-1)),forward=button('下一份对照',()=>void showSnapshot(snapshotPage+1));
-        nav.append(backward,position,forward);compare.append(nav,view);
-        async function showSnapshot(nextPage){if(nextPage<0||nextPage>=snapshots.length)return;snapshotPage=nextPage;const version=++snapshotVersion,item=snapshots[nextPage];
-          backward.disabled=nextPage===0;forward.disabled=nextPage===snapshots.length-1;
-          position.textContent=`右侧快照 ${nextPage+1} / ${snapshots.length}`;
-          const roleNames={cross:'跨题码风对照',previous:'同题上次提交',history:'较早命中',prior_ac:'前一份 AC',baseline:'稳定基线',early_ac:'早期 AC'};const label=`${roleNames[item.kind]||item.kind} · ${problemName(item.problemId)} · 提交 #${item.id}${item.result?' · '+item.result:''}`;
-          view.replaceChildren(el('p',`正在读取${label}…`));
-          try{const before=await readOj(item.id,item.hash,c.signal);if(!valid()||version!==snapshotVersion)return;
-            view.replaceChildren(el('p',`${item.submittedAt?new Date(item.submittedAt).toLocaleString()+' · ':''}源码 SHA-256：${item.hash}`),comparison(before,r.code,item.id,id,{diff:item.kind!=='cross',rightTitle:label}));
-          }catch(e){if(!valid()||version!==snapshotVersion)return;view.replaceChildren(el('p',`${label}读取失败：${e.message}`),comparison(null,r.code,null,id,{rightTitle:label}));}
+      const currentView=el('div');currentView.dataset.currentSource='1';currentView.append(comparison(null,r.code,null,id,{rightTitle:snapshots.length?'展开历史代码对照后显示参考源码':undefined}));compare.append(currentView);
+      if(snapshots.length){
+        const history=el('details');history.dataset.historyComparison='1';history.append(el('summary',`历史代码对照（${snapshots.length} 份，展开查看）`));
+        const nav=el('div');nav.className='ar-review-nav';const view=el('div'),position=el('span');view.dataset.historyView='1';view.setAttribute('aria-live','polite');let snapshotPage=0,snapshotVersion=0,historyController=null;
+        const loaded=new Map(),backward=button('上一份对照',()=>void showSnapshot(snapshotPage-1)),forward=button('下一份对照',()=>void showSnapshot(snapshotPage+1));
+        backward.disabled=true;forward.disabled=snapshots.length===1;position.textContent=`历史对照 1 / ${snapshots.length}`;
+        nav.append(backward,position,forward);history.append(nav,view);compare.append(history);
+        history.addEventListener('toggle',()=>{
+          if(!valid())return;currentView.hidden=history.open;
+          if(history.open)void showSnapshot(snapshotPage);
+          else{snapshotVersion++;historyController?.abort();}
+        });
+        async function showSnapshot(nextPage){
+          if(!valid()||!history.open||nextPage<0||nextPage>=snapshots.length)return;
+          snapshotPage=nextPage;const version=++snapshotVersion,ref=snapshots[nextPage];historyController?.abort();historyController=new AbortController();
+          const signal=AbortSignal.any([c.signal,historyController.signal,AbortSignal.timeout(20000)]),visible=()=>valid()&&history.open&&version===snapshotVersion;
+          backward.disabled=nextPage===0;forward.disabled=nextPage===snapshots.length-1;position.textContent=`历史对照 ${nextPage+1} / ${snapshots.length}`;view.dataset.historySubmission=String(ref.submission_id);
+          view.replaceChildren(el('p',`正在读取历史提交 #${ref.submission_id}…`));
+          try{
+            let cached=loaded.get(nextPage);
+            if(!cached){const source=await client.referenceSource(ref,r,signal);if(!visible())return;
+              const before=await readOj(ref.submission_id,ref.code_hash,signal);if(!visible())return;cached={source,before};loaded.set(nextPage,cached);}
+            if(!visible())return;const {source,before}=cached;
+            const cross=String(source.problem_id)!==String(r.problem_id),kind=cross?'cross':ref.kind||ref.role||'previous';
+            const roleNames={cross:'跨题码风对照',previous:'同题上次提交',history:'较早命中',prior_ac:'前一份 AC',baseline:'稳定基线',early_ac:'早期 AC'};
+            const title=String(source.contest_id)===String(r.contest_id)?problemName(source.problem_id):`题目 ${source.problem_id}`;
+            const label=`${roleNames[kind]||'历史提交'} · ${core.contestLabel(source.contest_id,getContext().contestNames)} · ${title} · 提交 #${ref.submission_id}${source.evaluation_result?' · '+source.evaluation_result:''}`;
+            view.replaceChildren(el('p',`${core.beijingTime(source.submitted_at)} · 源码 SHA-256：${ref.code_hash}`),comparison(before,r.code,ref.submission_id,id,{diff:!cross,rightTitle:label}));
+          }catch(error){
+            if(!visible())return;const notice=el('p',error.name==='AbortError'?'历史对照读取超时，请重试。':'历史对照暂时无法读取：'+error.message);notice.setAttribute('role','status');
+            view.replaceChildren(notice,button('重试',()=>void showSnapshot(nextPage)),sourceLink(ref.submission_id,'打开历史原提交'),comparison(null,r.code,null,id,{rightTitle:'历史源码暂不可用'}));
+          }
         }
-        await showSnapshot(0);if(!valid())return;
       }
       for(const e of r.evidence||[])content.append(el('h3',`规则证据${e.start_line?` · 第 ${e.start_line}–${e.end_line||e.start_line} 行`:''}`),pre(e.quote||JSON.stringify(e,null,2)));
       if(r.parse_status&&r.parse_status!=='ok')content.append(el('p','解析状态：'+r.parse_status+'；差异估计可能不可靠，请核对原始源码。'));

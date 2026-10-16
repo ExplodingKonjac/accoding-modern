@@ -106,6 +106,8 @@ export function createAiReviewCore() {
     };
   }
   function featureClient(getToken,fetcher=fetch,version=3){
+    const sourceCache=new Map(),referenceRuns=new Map();
+    const remember=(cache,key,value)=>{cache.delete(key);cache.set(key,value);if(cache.size>128)cache.delete(cache.keys().next().value);return value;};
     async function request(path,body,signal,absent=false,write=false){
       const token=version===4&&!write?'':getToken().trim();if(version!==4&&!token)throw new Error('请先在复核设置中填写只读令牌。');
       const res=await fetcher((version===4?apiV4:apiV3)+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(version===4?{'X-Review-State-Protocol':'2'}:{}),...(body?{'Content-Type':'application/json'}:{})},credentials:'omit',cache:'no-store',signal,body:body?JSON.stringify(body):undefined});
@@ -114,7 +116,47 @@ export function createAiReviewCore() {
       return res.json();
     }
     async function runs(path,signal,contest){const r=await request(path,null,signal);if(!Array.isArray(r.runs)||r.runs.some(x=>typeof x.run_id!=='string'||(Object.hasOwn(x,'publication_ready')&&typeof x.publication_ready!=='boolean')||!hash(x.configuration_sha256)||(contest!==undefined&&x.contest_id!==Number(contest))))throw new Error('运行清单格式或比赛不一致');return r;}
+    async function referenceSource(ref,current,signal){
+      signal?.throwIfAborted();
+      const id=String(ref?.submission_id||''),author=String(current?.creator_id||'');
+      if(!/^[1-9]\d*$/.test(id)||!hash(ref?.code_hash)||!author)throw new Error('历史对照缺少有效的提交身份或源码校验信息');
+      const locator=typeof ref.source_locator==='object'&&ref.source_locator!==null?ref.source_locator.run_id:ref.source_locator;
+      if(ref.source_locator!=null&&(typeof locator!=='string'||!locator))throw new Error('历史对照运行编号无效');
+      if(ref.run_id&&locator&&ref.run_id!==locator)throw new Error('历史对照运行编号不一致');
+      const explicit=ref.run_id||locator;
+      if(explicit!=null&&(typeof explicit!=='string'||!explicit||!/^[\w.-]+$/.test(explicit)))throw new Error('历史对照运行编号无效');
+      const sameContest=ref.contest_id!=null&&String(ref.contest_id)===String(current.contest_id);
+      const hinted=explicit||(sameContest?current.run_id:null),attempted=new Set();
+      function verify(source,run){
+        if(!source||String(source.submission_id)!==id||source.code_hash!==ref.code_hash||String(source.creator_id)!==author
+          ||(ref.creator_id!=null&&String(source.creator_id)!==String(ref.creator_id))
+          ||(ref.contest_id!=null&&String(source.contest_id)!==String(ref.contest_id))
+          ||(ref.problem_id!=null&&String(source.problem_id)!==String(ref.problem_id))
+          ||(run.contest_id!=null&&String(source.contest_id)!==String(run.contest_id))
+          ||(source.run_id!=null&&source.run_id!==run.run_id)
+          ||! /^[1-9]\d*$/.test(String(source.problem_id))||! /^[1-9]\d*$/.test(String(source.contest_id)))throw new Error('历史对照的提交、源码哈希、作者或题目与冻结记录不一致');
+        return {...source,run_id:run.run_id};
+      }
+      async function read(run){
+        signal?.throwIfAborted();attempted.add(run.run_id);
+        const key=version+':'+(version===4?'public':getToken().trim())+':'+run.run_id+':'+id+':'+ref.code_hash;
+        if(sourceCache.has(key))return verify(sourceCache.get(key),run);
+        const source=await request(`/runs/${encodeURIComponent(run.run_id)}/sources/${encodeURIComponent(id)}`,null,signal);
+        signal?.throwIfAborted();const result=verify(source,run);remember(sourceCache,key,source);return result;
+      }
+      if(hinted){try{return await read({run_id:hinted,contest_id:ref.contest_id});}catch(error){if(error.httpStatus!==404)throw error;}}
+      const scopeKey=version+':'+(version===4?'public':getToken().trim())+':'+id;
+      let found=referenceRuns.get(scopeKey);
+      if(!found||Date.now()-found.at>30000){
+        const packet=await runs(`/submissions/${encodeURIComponent(id)}/runs${version===4?'?include_candidates=true&include_unpublished=true':''}`,signal);
+        signal?.throwIfAborted();found={at:Date.now(),runs:packet.runs};if(packet.runs.length)remember(referenceRuns,scopeKey,found);
+      }
+      const choices=selectReviewRun(found.runs).runs.filter(run=>run.publication_ready!==false&&!attempted.has(run.run_id)&&(ref.contest_id==null||String(run.contest_id)===String(ref.contest_id)));
+      for(const run of choices){try{return await read(run);}catch(error){if(error.httpStatus!==404)throw error;}}
+      throw new Error('尚无可读取的历史冻结快照，请稍后重试或打开原提交');
+    }
     return {
+      referenceSource,
       session:(signal,write=false)=>request('/feedback/session',null,signal,false,write),
       profile:(creatorId,contestId,signal)=>request(`/profiles/${encodeURIComponent(creatorId)}?site=${encodeURIComponent('https://accoding.buaa.edu.cn:4000')}&contest_id=${encodeURIComponent(contestId)}`,null,signal),
       source:(id,runId,signal)=>request(`/runs/${encodeURIComponent(runId)}/sources/${encodeURIComponent(id)}`,null,signal),
