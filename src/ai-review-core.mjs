@@ -33,6 +33,22 @@ export function createAiReviewCore() {
     const habits=Object.entries(summary.habits||{}).map(([kind,habit])=>({kind,habit,text:habit.applicable?`${habit.applicable} 份可比较的代码中，${habit.present??0} 份${kind==='input_guard'?'包含额外输入失败检查':kind==='comment'?'包含说明性注释':'具有这项写法'}。`:`暂无可用于比较${kind==='input_guard'?'输入检查':kind==='comment'?'说明性注释':'这项写法'}的代码。`}));
     return {range,gap,baseline,habits,updated:`统计更新至 ${beijingTime(snapshot.cutoff)}（北京时间）。`,distribution:Object.entries(summary.distribution||{}).map(([id,item])=>({label:contestLabel(id,titles),item,score:summary.member_score?.[id]}))};
   }
+  function contestPairNarrative(record){
+    const pair=record?.rule_metadata?.cross_problem_style;
+    if(pair?.comparison_mode!=='within_contest_non_overlapping_pair_v1')return null;
+    const names={helper_organization:'辅助函数组织',input_idiom:'额外输入失败检查',comment_organization:'说明性注释组织'};
+    const side=pair.selected_side==='earlier'?'较早':pair.selected_side==='later'?'较晚':'未标明先后';
+    const groups=(pair.changed_evidence_groups||[]).map(group=>names[group]||group);
+    return {pairIndex:pair.pair_index,problemIds:pair.pair_problem_ids||[],selectedProblemId:pair.selected_problem_id,
+      chronology:`当前提交是本次${side}的一侧，规则只选择内容组织更规范的题目作为候选。`,
+      timing:pair.selected_side==='earlier'?'本次配对对照晚于当前提交，按实际提交时间回看两份代码。':'本次配对按实际提交时间列出先后。',
+      content:`内容变化：${groups.join('、')||'未提供'}。${pair.admission==='one_content_group_with_strong_layout'?'另有排版佐证；相关排版变化合为一组，不独立计分。':'至少两组内容变化方向一致。'}`,
+      references:Array.isArray(pair.comparison_references)&&pair.comparison_references.length?pair.comparison_references:pair.pair_references||[],
+      technical:{pair_id:pair.pair_id,pairing_policy:pair.pairing_policy,pair_created_at:pair.pair_created_at,
+        initial_target_reference:pair.initial_target_reference,decision_cutoff:pair.decision_cutoff,
+        standardization:pair.standardization,cohort_role:pair.cohort_role,
+        pairing_population_references:pair.pairing_population_references,cohort_references:pair.cohort_references}};
+  }
   function recomputeNotice(record){
     if(record?.needs_recompute!==true&&record?.recompute_reason!=='baseline_feedback_changed'&&record?.scope_evidence_status!=='baseline_feedback_changed')return '';
     return record.scope_explanation||record.scope_evidence_explanation||'基线参考后来被人工判为有 AI 或存疑，该比较需重新核查并重跑；其他独立证据仍可查看。';
@@ -205,5 +221,5 @@ export function createAiReviewCore() {
     }
     solve(a,b,1,1);return output;
   }
-  return {recomputeNotice,profileRecompute,collectedContests,courseContests,contestLabel,beijingTime,profileNarrative,selectReviewRun,humanLabels,humanState,feedbackPacket,inReviewFilter,scoreSummary,submissionUrl,exportTables,reviewCursor,lineDiff,api,apiV3,apiV4,selections,states,reviewStates,featureLabels,members,hasFlaggedReview,hasFeatureReview,hasReviewRecord,verifySource,sourceVariants,sourceFromOj,client,featureClient};
+  return {contestPairNarrative,recomputeNotice,profileRecompute,collectedContests,courseContests,contestLabel,beijingTime,profileNarrative,selectReviewRun,humanLabels,humanState,feedbackPacket,inReviewFilter,scoreSummary,submissionUrl,exportTables,reviewCursor,lineDiff,api,apiV3,apiV4,selections,states,reviewStates,featureLabels,members,hasFlaggedReview,hasFeatureReview,hasReviewRecord,verifySource,sourceVariants,sourceFromOj,client,featureClient};
 }

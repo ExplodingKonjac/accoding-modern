@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.20.4
+// @version      1.20.5
 // @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @include      https://accoding-4000.e1.buaa.edu.cn/*
@@ -23,7 +23,7 @@
 
 (() => {
 'use strict';
-const ACCODING_MODERN_VERSION="1.20.4";
+const ACCODING_MODERN_VERSION="1.20.5";
 // Runtime URL compatibility for the direct site and BUAA VPN reverse proxy.
 // The VPN keeps the upstream app under /https-4000/<opaque-token>/, so absolute
 // root requests and pathname checks must be evaluated relative to that prefix.
@@ -1792,6 +1792,22 @@ function createAiReviewCore() {
     const habits=Object.entries(summary.habits||{}).map(([kind,habit])=>({kind,habit,text:habit.applicable?`${habit.applicable} 份可比较的代码中，${habit.present??0} 份${kind==='input_guard'?'包含额外输入失败检查':kind==='comment'?'包含说明性注释':'具有这项写法'}。`:`暂无可用于比较${kind==='input_guard'?'输入检查':kind==='comment'?'说明性注释':'这项写法'}的代码。`}));
     return {range,gap,baseline,habits,updated:`统计更新至 ${beijingTime(snapshot.cutoff)}（北京时间）。`,distribution:Object.entries(summary.distribution||{}).map(([id,item])=>({label:contestLabel(id,titles),item,score:summary.member_score?.[id]}))};
   }
+  function contestPairNarrative(record){
+    const pair=record?.rule_metadata?.cross_problem_style;
+    if(pair?.comparison_mode!=='within_contest_non_overlapping_pair_v1')return null;
+    const names={helper_organization:'辅助函数组织',input_idiom:'额外输入失败检查',comment_organization:'说明性注释组织'};
+    const side=pair.selected_side==='earlier'?'较早':pair.selected_side==='later'?'较晚':'未标明先后';
+    const groups=(pair.changed_evidence_groups||[]).map(group=>names[group]||group);
+    return {pairIndex:pair.pair_index,problemIds:pair.pair_problem_ids||[],selectedProblemId:pair.selected_problem_id,
+      chronology:`当前提交是本次${side}的一侧，规则只选择内容组织更规范的题目作为候选。`,
+      timing:pair.selected_side==='earlier'?'本次配对对照晚于当前提交，按实际提交时间回看两份代码。':'本次配对按实际提交时间列出先后。',
+      content:`内容变化：${groups.join('、')||'未提供'}。${pair.admission==='one_content_group_with_strong_layout'?'另有排版佐证；相关排版变化合为一组，不独立计分。':'至少两组内容变化方向一致。'}`,
+      references:Array.isArray(pair.comparison_references)&&pair.comparison_references.length?pair.comparison_references:pair.pair_references||[],
+      technical:{pair_id:pair.pair_id,pairing_policy:pair.pairing_policy,pair_created_at:pair.pair_created_at,
+        initial_target_reference:pair.initial_target_reference,decision_cutoff:pair.decision_cutoff,
+        standardization:pair.standardization,cohort_role:pair.cohort_role,
+        pairing_population_references:pair.pairing_population_references,cohort_references:pair.cohort_references}};
+  }
   function recomputeNotice(record){
     if(record?.needs_recompute!==true&&record?.recompute_reason!=='baseline_feedback_changed'&&record?.scope_evidence_status!=='baseline_feedback_changed')return '';
     return record.scope_explanation||record.scope_evidence_explanation||'基线参考后来被人工判为有 AI 或存疑，该比较需重新核查并重跑；其他独立证据仍可查看。';
@@ -1964,7 +1980,7 @@ function createAiReviewCore() {
     }
     solve(a,b,1,1);return output;
   }
-  return {recomputeNotice,profileRecompute,collectedContests,courseContests,contestLabel,beijingTime,profileNarrative,selectReviewRun,humanLabels,humanState,feedbackPacket,inReviewFilter,scoreSummary,submissionUrl,exportTables,reviewCursor,lineDiff,api,apiV3,apiV4,selections,states,reviewStates,featureLabels,members,hasFlaggedReview,hasFeatureReview,hasReviewRecord,verifySource,sourceVariants,sourceFromOj,client,featureClient};
+  return {contestPairNarrative,recomputeNotice,profileRecompute,collectedContests,courseContests,contestLabel,beijingTime,profileNarrative,selectReviewRun,humanLabels,humanState,feedbackPacket,inReviewFilter,scoreSummary,submissionUrl,exportTables,reviewCursor,lineDiff,api,apiV3,apiV4,selections,states,reviewStates,featureLabels,members,hasFlaggedReview,hasFeatureReview,hasReviewRecord,verifySource,sourceVariants,sourceFromOj,client,featureClient};
 }
 
 
@@ -2172,8 +2188,8 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
     const previous=button('上一页',()=>{page--;void refresh();}),next=button('下一页',()=>{page++;void refresh();});previous.disabled=page<=0;next.disabled=(page+1)*size>=total;pager.append(previous,next);
   }
   const pre=text=>{const p=el('pre',text);p.className='ar-source';return p;};
-  function comparison(before,after,previousId,currentId,{diff=true,rightTitle}={}){
-    const box=el('div');box.className='ar-compare';box.setAttribute('aria-label','本次提交与同题上次提交逐行对照');
+  function comparison(before,after,previousId,currentId,{diff=true,rightTitle,ariaLabel}={}){
+    const box=el('div');box.className='ar-compare';box.setAttribute('aria-label',ariaLabel||'本次提交与同题上次提交逐行对照');
     box.append(el('div',`本次提交 #${currentId}`),el('div',rightTitle||(previousId?`上次提交 #${previousId}`:'当前核查快照中无更早提交')));for(const title of box.children)title.className='ar-compare-title';
     if(before!==null&&!diff){const current=after.split('\n'),reference=before.split('\n');for(let i=0;i<Math.max(current.length,reference.length);i++)box.append(cell(current[i]===undefined?null:{text:current[i]},i+1,''),cell(reference[i]===undefined?null:{text:reference[i]},i+1,''));return box;}
     const lines=before===null?after.split('\n').map((text,i)=>({kind:'equal',text,newLine:i+1,oldLine:null})):core.lineDiff(before,after);
@@ -2222,17 +2238,18 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
       content.append(meta,el('p',`评测结果：${r.evaluation_result||r.judge_result||r.verdict||r.oj_result||r.submission_result||'未提供'} · 规则版本：${r.rule_version||'历史运行'}`),el('p','命中事实：'+(r.result?.reason||'无')),el('p','规则特征：'+((r.result?.label||[]).join('；')||'无')));
       renderRuleFacts(content,r);renderScores(content,r);launchProfile(content,r,c.signal,valid);renderEvidenceChain(content,r);
       const compare=el('section'),editorTarget=el('section');content.append(compare,editorTarget);const editorReady=feedbackEditor(r,c.signal,valid,editorTarget).catch(error=>{if(valid())editorTarget.append(el('p','人工核查读取失败：'+error.message));});
-      const snapshots=[],seenSnapshots=new Set();
-      for(const ref of [...(r.context_references||[]),...(r.history_hits||[]),...(r.prior_accepted_submissions||[]),...(r.baseline_references||[]),...(r.evidence_chain||[]),...(r.previous_submission?[{...r.previous_submission,kind:'previous'}]:[])]){
+      const pairInfo=core.contestPairNarrative(r),snapshots=[],seenSnapshots=new Set();
+      const references=pairInfo?pairInfo.references:[...(r.context_references||[]),...(r.history_hits||[]),...(r.prior_accepted_submissions||[]),...(r.baseline_references||[]),...(r.evidence_chain||[]),...(r.previous_submission?[{...r.previous_submission,kind:'previous'}]:[])];
+      for(const ref of references){
         if(!ref.submission_id||!ref.code_hash||String(ref.submission_id)===String(id))continue;
         const key=String(ref.submission_id)+':'+ref.code_hash;if(seenSnapshots.has(key))continue;seenSnapshots.add(key);snapshots.push(ref);
       }
-      const currentView=el('div');currentView.dataset.currentSource='1';currentView.append(comparison(null,r.code,null,id,{rightTitle:snapshots.length?'展开历史代码对照后显示参考源码':undefined}));compare.append(currentView);
+      const currentView=el('div');currentView.dataset.currentSource='1';currentView.append(comparison(null,r.code,null,id,{rightTitle:snapshots.length?`展开${pairInfo?'配对':'历史'}代码对照后显示参考源码`:undefined}));compare.append(currentView);
       if(snapshots.length){
-        const history=el('details');history.dataset.historyComparison='1';history.append(el('summary',`历史代码对照（${snapshots.length} 份，展开查看）`));
+        const history=el('details');history.dataset.historyComparison='1';history.append(el('summary',`${pairInfo?'配对代码对照':'历史代码对照'}（${snapshots.length} 份，展开查看）`));
         const nav=el('div');nav.className='ar-review-nav';const view=el('div'),position=el('span');view.dataset.historyView='1';view.setAttribute('aria-live','polite');let snapshotPage=0,snapshotVersion=0,historyController=null;
         const loaded=new Map(),backward=button('上一份对照',()=>void showSnapshot(snapshotPage-1)),forward=button('下一份对照',()=>void showSnapshot(snapshotPage+1));
-        backward.disabled=true;forward.disabled=snapshots.length===1;position.textContent=`历史对照 1 / ${snapshots.length}`;
+        backward.disabled=true;forward.disabled=snapshots.length===1;position.textContent=`${pairInfo?'配对对照':'历史对照'} 1 / ${snapshots.length}`;
         nav.append(backward,position,forward);history.append(nav,view);compare.append(history);
         history.addEventListener('toggle',()=>{
           if(!valid())return;currentView.hidden=history.open;
@@ -2243,21 +2260,21 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
           if(!valid()||!history.open||nextPage<0||nextPage>=snapshots.length)return;
           snapshotPage=nextPage;const version=++snapshotVersion,ref=snapshots[nextPage];historyController?.abort();historyController=new AbortController();
           const signal=AbortSignal.any([c.signal,historyController.signal,AbortSignal.timeout(20000)]),visible=()=>valid()&&history.open&&version===snapshotVersion;
-          backward.disabled=nextPage===0;forward.disabled=nextPage===snapshots.length-1;position.textContent=`历史对照 ${nextPage+1} / ${snapshots.length}`;view.dataset.historySubmission=String(ref.submission_id);
-          view.replaceChildren(el('p',`正在读取历史提交 #${ref.submission_id}…`));
+          backward.disabled=nextPage===0;forward.disabled=nextPage===snapshots.length-1;position.textContent=`${pairInfo?'配对对照':'历史对照'} ${nextPage+1} / ${snapshots.length}`;view.dataset.historySubmission=String(ref.submission_id);
+          view.replaceChildren(el('p',`正在读取${pairInfo?'配对':'历史'}提交 #${ref.submission_id}…`));
           try{
             let cached=loaded.get(nextPage);
             if(!cached){const source=await client.referenceSource(ref,r,signal);if(!visible())return;
               const before=await readOj(ref.submission_id,ref.code_hash,signal);if(!visible())return;cached={source,before};loaded.set(nextPage,cached);}
             if(!visible())return;const {source,before}=cached;
-            const cross=String(source.problem_id)!==String(r.problem_id),kind=cross?'cross':ref.kind||ref.role||'previous';
-            const roleNames={cross:'跨题码风对照',previous:'同题上次提交',history:'较早命中',prior_ac:'前一份 AC',baseline:'稳定基线',early_ac:'早期 AC'};
+            const cross=String(source.problem_id)!==String(r.problem_id),kind=pairInfo?'contest_pair':cross?'cross':ref.kind||ref.role||'previous';
+            const roleNames={contest_pair:'同场配对对照',cross:'跨题码风对照',previous:'同题上次提交',history:'较早命中',prior_ac:'前一份 AC',baseline:'稳定基线',early_ac:'早期 AC'};
             const title=String(source.contest_id)===String(r.contest_id)?problemName(source.problem_id):`题目 ${source.problem_id}`;
             const label=`${roleNames[kind]||'历史提交'} · ${core.contestLabel(source.contest_id,getContext().contestNames)} · ${title} · 提交 #${ref.submission_id}${source.evaluation_result?' · '+source.evaluation_result:''}`;
-            view.replaceChildren(el('p',`${core.beijingTime(source.submitted_at)} · 源码 SHA-256：${ref.code_hash}`),comparison(before,r.code,ref.submission_id,id,{diff:!cross,rightTitle:label}));
+            view.replaceChildren(el('p',`${core.beijingTime(source.submitted_at)} · 源码 SHA-256：${ref.code_hash}`),comparison(before,r.code,ref.submission_id,id,{diff:!cross,rightTitle:label,ariaLabel:pairInfo?'本次提交与同场配对代码对照':undefined}));
           }catch(error){
-            if(!visible())return;const notice=el('p',error.name==='AbortError'?'历史对照读取超时，请重试。':'历史对照暂时无法读取：'+error.message);notice.setAttribute('role','status');
-            view.replaceChildren(notice,button('重试',()=>void showSnapshot(nextPage)),sourceLink(ref.submission_id,'打开历史原提交'),comparison(null,r.code,null,id,{rightTitle:'历史源码暂不可用'}));
+            if(!visible())return;const notice=el('p',error.name==='AbortError'?`${pairInfo?'配对':'历史'}对照读取超时，请重试。`:`${pairInfo?'配对':'历史'}对照暂时无法读取：`+error.message);notice.setAttribute('role','status');
+            view.replaceChildren(notice,button('重试',()=>void showSnapshot(nextPage)),sourceLink(ref.submission_id,`打开${pairInfo?'配对':'历史'}原提交`),comparison(null,r.code,null,id,{rightTitle:pairInfo?'配对源码暂不可用':'历史源码暂不可用'}));
           }
         }
       }
@@ -2272,6 +2289,14 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   function sourceLink(id,text){const a=el('a',text||`提交 #${id}`);a.href=core.submissionUrl(id);a.target='_blank';a.rel='noopener noreferrer';return a;}
   function renderRuleFacts(target,r){
     const fact=r.rule_metadata;if(!fact)return;const box=el('section');box.append(el('h3','命中事实与历史解释'));
+    const pair=core.contestPairNarrative(r);
+    if(pair){
+      const panel=el('section');panel.dataset.contestPair='1';
+      const problemLabel=id=>{const found=getContext().contest?.problems?.find(item=>String(item.id)===String(id));return found?`${found.label} · ${found.title}`:`题目 ${id}`;};
+      panel.append(el('h4',`同场第 ${pair.pairIndex??'—'} 对`),el('p',`配对已锁定：${pair.problemIds.map(problemLabel).join('、')}；本对只核查 ${problemLabel(pair.selectedProblemId)}。`),el('p',pair.chronology),el('p',pair.timing),el('p',pair.content),el('p','首次命中后固定核查题，另一题后续反向变化只作观察。'));
+      for(const [index,ref] of pair.references.entries()){const line=el('p');line.append(index===0?'较早提交：':'较晚提交：',sourceLink(ref.submission_id),` · ${problemLabel(ref.problem_id)} · ${core.beijingTime(ref.created_at||ref.submitted_at)}`);panel.append(line);}
+      const technical=el('details');technical.dataset.pairTechnical='1';technical.append(el('summary','配对技术详情'),pre(JSON.stringify(pair.technical,null,2)));panel.append(technical);box.append(panel);
+    }
     if(fact.history_evidence_status==='unavailable')box.append(el('p',fact.history_evidence_explanation||'授权范围不足，部分历史证据暂不可查看。'));
     if(fact.change?.status==='unavailable')box.append(el('p',fact.change.explanation||'当前无法查看这组历史差异。'));
     else if(fact.change){const change=fact.change;box.append(el('p',`${change.difference_reliable===false?'不可靠的差异估计':'可执行代码差异'}：${((change.change_ratio||0)*100).toFixed(1)}%，增加 ${change.added_tokens??0}、删除 ${change.removed_tokens??0} 个 token；前版 ${change.previous_tokens??0}、当前 ${change.current_tokens??0} 个 token，间隔 ${change.seconds_between??'—'} 秒。`));}
@@ -2316,9 +2341,10 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
     }catch(e){if(valid())box.append(el('p','历史代码暂时无法读取：'+e.message));}
   }
   function renderEvidenceChain(target,r){
-    const records=[...(r.evidence_chain||[]),...(r.history_hits||[]),...(r.prior_accepted_submissions||[]),...(r.baseline_references||[])];
-    if(!records.length)return;const box=el('details');box.append(el('summary','同题命中与 AC 提交时间线'));
-    for(const ref of records){const row=el('p');if(ref.submission_id)row.append(sourceLink(ref.submission_id));row.append(` · ${ref.judge_result||ref.result||ref.evaluation_result||'历史对照'} · ${core.beijingTime(ref.submitted_at)} · ${ref.role||ref.kind||'历史命中'}`);if(ref.code_hash){const hash=el('small',' · SHA-256 '+ref.code_hash);hash.className='ar-evidence-meta';row.append(hash);}if(ref.annotation)row.append(' · '+labels[ref.annotation.status]);box.append(row);}target.append(box);
+    const pairMode=!!core.contestPairNarrative(r),sameProblem=ref=>ref.problem_id!=null&&String(ref.problem_id)===String(r.problem_id);
+    const records=pairMode?[...(r.history_hits||[]).filter(ref=>ref.problem_id==null||sameProblem(ref)),...(r.prior_accepted_submissions||[]).filter(ref=>ref.problem_id==null||sameProblem(ref)),...(r.evidence_chain||[]).filter(sameProblem)]:[...(r.evidence_chain||[]),...(r.history_hits||[]),...(r.prior_accepted_submissions||[]),...(r.baseline_references||[])];
+    if(!records.length)return;const box=el('details');if(pairMode)box.dataset.sameProblemTimeline='1';box.append(el('summary','同题命中与 AC 提交时间线'));
+    for(const ref of records){const row=el('p');if(ref.submission_id)row.append(sourceLink(ref.submission_id));row.append(` · ${ref.judge_result||ref.result||ref.evaluation_result||'历史对照'} · ${core.beijingTime(ref.submitted_at||ref.created_at)} · ${ref.role||ref.kind||'历史命中'}`);if(ref.code_hash){const hash=el('small',' · SHA-256 '+ref.code_hash);hash.className='ar-evidence-meta';row.append(hash);}if(ref.annotation){row.append(' · '+labels[ref.annotation.status]);if(pairMode&&ref.annotation.reason)row.append(' · '+ref.annotation.reason);}box.append(row);}target.append(box);
   }
   async function closeDetail(controller){profileVersion++;profileController?.abort();detailResize?.disconnect();detailVersion++;controller.abort();detail.hidden=true;detail.replaceChildren();if(listDirty){listDirty=false;await refresh();}if(listPosition){list.scrollTop=listPosition.listTop;list.scrollLeft=listPosition.listLeft;const overlay=container.closest('.problem-review-page')||container.closest('.overlay');if(overlay)overlay.scrollTop=listPosition.overlayTop;listPosition=null;}}
   async function turn(direction,id){
