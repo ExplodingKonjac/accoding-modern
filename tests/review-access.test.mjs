@@ -74,17 +74,37 @@ function unionContext({failIds=[],combineFails=false}={}){
 }
 
 test('cross-contest access combines only successfully verified proof tokens and caches source proofs',async()=>{
-  const {context,calls}=unionContext({failIds:[3]});assert.equal(await vm.runInContext('ensureReviewAccess(1,core)',context),'combined');
+  const {context,calls}=unionContext({failIds:[3]});assert.equal(await vm.runInContext('expandReviewAccess(1,core)',context),'combined');
   const combined=calls.find(call=>call.url.endsWith('/combine'));assert.deepEqual(combined.body.tokens,['proof-1','proof-2','proof-4']);
   const coverage=vm.runInContext('reviewAccessCoverage.get(1)',context);assert.deepEqual([...coverage.verified_ids],[1,2,4]);assert.deepEqual([...coverage.failed_ids],[3]);
   const firstReads=calls.filter(call=>call.url.startsWith('/submission/')).length;
-  assert.equal(await vm.runInContext('ensureReviewAccess(1,core)',context),'combined');assert.equal(calls.filter(call=>call.url.startsWith('/submission/')).length,firstReads);
+  assert.equal(await vm.runInContext('expandReviewAccess(1,core)',context),'combined');assert.equal(calls.filter(call=>call.url.startsWith('/submission/')).length,firstReads);
   assert.equal(calls.filter(call=>call.url.endsWith('/combine')).length,1);
   assert.ok(calls.filter(call=>call.url.startsWith('https://')).every(call=>call.init.credentials==='omit'&&!('Cookie' in call.init.headers)));
 });
 
 test('one valid proof or a failed combine retains the current contest scope',async()=>{
-  const single=unionContext({failIds:[2,3,4]});assert.equal(await vm.runInContext('ensureReviewAccess(1,core)',single.context),'proof-1');assert.equal(single.calls.some(call=>call.url.endsWith('/combine')),false);
-  const failure=unionContext({combineFails:true});const tokens=await vm.runInContext('Promise.all([ensureReviewAccess(1,core),ensureReviewAccess(2,core)])',failure.context);assert.deepEqual([...tokens],['proof-1','proof-2']);
+  const single=unionContext({failIds:[2,3,4]});assert.equal(await vm.runInContext('expandReviewAccess(1,core)',single.context),'proof-1');assert.equal(single.calls.some(call=>call.url.endsWith('/combine')),false);
+  const failure=unionContext({combineFails:true});const tokens=await vm.runInContext('Promise.all([expandReviewAccess(1,core),expandReviewAccess(2,core)])',failure.context);assert.deepEqual([...tokens],['proof-1','proof-2']);
   assert.equal(vm.runInContext('reviewAccessCoverage.get(1).combine_error',failure.context),true);
+});
+
+test('foreground access proves only this contest and never joins a slow background expansion',async()=>{
+  const {context,calls}=unionContext();
+  assert.equal(await vm.runInContext('ensureReviewAccess(1,core)',context),'proof-1');
+  assert.deepEqual(calls.filter(call=>call.url.endsWith('/challenge')).map(call=>call.body.contest_id),[1]);
+  const original=context.fetch;let release;const gate=new Promise(resolve=>{release=resolve;});
+  context.fetch=async(url,init)=>{if(url.endsWith('/challenge')&&JSON.parse(init.body).contest_id!==1)await gate;return original(url,init);};
+  const expansion=vm.runInContext('expandReviewAccess(1,core)',context);await new Promise(resolve=>setImmediate(resolve));
+  let settled=false;const foreground=vm.runInContext('ensureReviewAccess(1,core)',context).then(value=>{settled=true;return value;});
+  await new Promise(resolve=>setTimeout(resolve,15));assert.equal(settled,true,'a pending expansion cannot delay the current contest');assert.equal(await foreground,'proof-1');
+  release();assert.equal(await expansion,'combined');assert.equal(await vm.runInContext('ensureReviewAccess(1,core)',context),'combined');
+  assert.equal(calls.filter(call=>call.url.endsWith('/challenge')&&call.body.contest_id===1).length,1,'current proof is reused');
+});
+
+test('timing benchmark isolates optional cross-contest delay from foreground access',async()=>{
+  const run=async(expanded)=>{const {context}=unionContext(),original=context.fetch;context.fetch=async(url,init)=>{if(url.endsWith('/challenge'))await new Promise(resolve=>setTimeout(resolve,JSON.parse(init.body).contest_id===1?10:100));return original(url,init);};const start=performance.now();await vm.runInContext(expanded?'expandReviewAccess(1,core)':'ensureReviewAccess(1,core)',context);return performance.now()-start;};
+  const before=await run(true),after=await run(false);
+  assert.ok(before>=100);assert.ok(after<before/2,`before ${before.toFixed(1)} ms; after ${after.toFixed(1)} ms`);
+  console.log(`foreground access benchmark (synthetic): before ${before.toFixed(1)} ms, after ${after.toFixed(1)} ms`);
 });

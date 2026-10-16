@@ -67,12 +67,21 @@ async function ensureReviewContestProof(contestId,core,account){
     reviewAccessSessions.set(key,session);return session;
   })();reviewAccessPending.set(key,pending);try{return await pending;}finally{reviewAccessPending.delete(key);}
 }
+// The foreground path proves only the current contest. Broader history is optional.
 async function ensureReviewAccess(contestId,core){
+  const cid=Number(contestId),account=await reviewCurrentAccount(),proof=await ensureReviewContestProof(cid,core,account);
+  const union=[...reviewAccessUnions.entries()].filter(([key,value])=>key.startsWith(account.userId+':')&&value.expires>Date.now()/1000+60&&value.contest_ids.includes(cid)).map(([,value])=>value).sort((a,b)=>b.contest_ids.length-a.contest_ids.length)[0];
+  if(!reviewAccessCoverage.has(cid))reviewAccessCoverage.set(cid,{attempted_ids:[cid],verified_ids:union?.contest_ids||[cid],failed_ids:[]});
+  return union?.token||proof.token;
+}
+async function expandReviewAccess(contestId,core){
   const cid=Number(contestId),account=await reviewCurrentAccount(),current=await ensureReviewContestProof(cid,core,account),sameCourse=core.courseContests?.(cid)||[],all=core.collectedContests?.()||sameCourse,group=[...(sameCourse.length?sameCourse:[{id:cid}]),...all.filter(item=>item.id!==cid&&!sameCourse.some(known=>known.id===item.id))];
   if(group.length<2){reviewAccessCoverage.set(cid,{attempted_ids:[cid],verified_ids:[cid],failed_ids:[]});return current.token;}
   const unionKey=account.userId+':'+group.map(item=>item.id).sort((a,b)=>a-b).join(',');
   if(reviewAccessUnionPending.has(unionKey)){const union=await reviewAccessUnionPending.get(unionKey);return union?.contest_ids.includes(cid)?union.token:current.token;}
   const pending=(async()=>{
+    const known=group.map(item=>item.id).filter(id=>reviewAccessSessions.get(account.userId+':'+id)?.expires>Date.now()/1000+60);
+    for(const item of group)reviewAccessCoverage.set(item.id,{attempted_ids:group.map(item=>item.id),verified_ids:known,failed_ids:[],pending:true});
     const others=group.filter(item=>item.id!==cid),attempts=[],proofs=[current],failed=[];for(let offset=0;offset<others.length;offset+=3)attempts.push(...await Promise.allSettled(others.slice(offset,offset+3).map(item=>ensureReviewContestProof(item.id,core,account))));
     attempts.forEach((result,index)=>{if(result.status==='fulfilled')proofs.push(result.value);else failed.push(others[index].id);});
     const verified=proofs.map(proof=>proof.contest_id).sort((a,b)=>a-b),coverage={attempted_ids:group.map(item=>item.id),verified_ids:verified,failed_ids:failed};
