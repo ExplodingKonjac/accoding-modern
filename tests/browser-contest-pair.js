@@ -25,14 +25,14 @@
     assert(section.textContent.includes('对照晚于当前提交'),'later partner is not described as a historical baseline');
     assert(!technical.open&&technical.textContent.includes(cohort[0].submission_id),'cohort remains inside collapsed technical data');
     assert(section.querySelectorAll('a').length===2,'only two actual primary references are linked');
-    assert(!history.open&&history.querySelector('summary').textContent.startsWith('配对代码对照（1 份'),'only one partner is available in the collapsed viewer');
-    assert(references===0&&ojReads===0,'default pair display loads no source');
+    assert(history.open&&history.querySelector('summary').textContent.startsWith('配对代码对照（1 份'),'only one partner is available in the collapsed viewer');
+    await settle(()=>history.querySelector('[data-history-view]')?.textContent.includes('PAIR_LATER_REFERENCE'));assert(references===1&&ojReads===1,'default comparison loads exactly one partner');
     const timeline=host.querySelector('[data-same-problem-timeline]');assert(timeline&&!timeline.open,'same-problem hit and AC history remain collapsed');
     const timelineIds=[...timeline.querySelectorAll('a')].map(link=>link.textContent.replace('提交 #',''));assert(JSON.stringify(timelineIds)===JSON.stringify([hit.submission_id,priorAc.submission_id,explicitChain.submission_id]),'only same-problem history and explicitly matching chain entries remain');
     assert(timeline.textContent.includes('有 AI')&&timeline.textContent.includes('模拟历史 AI 理由'),'historical human AI status and reason are preserved');
-    timeline.querySelector('summary').click();await new Promise(resolve=>setTimeout(resolve,5));assert(references===0&&ojReads===0,'expanding the metadata timeline never requests history code');
+    timeline.querySelector('summary').click();await new Promise(resolve=>setTimeout(resolve,5));assert(references===1&&ojReads===1,'expanding metadata does not request more source');
     const note=host.querySelector('textarea');assert(note,'editor loads independently');note.value='配对未展开也可填写';
-    history.querySelector('summary').click();await settle(()=>history.querySelector('[data-history-view]')?.textContent.includes('PAIR_LATER_REFERENCE'));
+    await settle(()=>history.querySelector('[data-history-view]')?.textContent.includes('PAIR_LATER_REFERENCE'));
     assert(history.textContent.includes('同场配对对照')&&!history.textContent.includes('稳定基线'),'role label reflects same-contest pairing');
     assert(references===1&&ojReads===1&&host.querySelector('textarea')===note&&note.value==='配对未展开也可填写','one selected source loads without replacing the draft');
     record.rule_metadata.cross_problem_style.comparison_mode='stable-prior-nonformat-v1';await panel.openDetail(record.submission_id);

@@ -7,11 +7,20 @@
   const client={progress:async()=>({runs:[{run_id:'fixture',contest_id:1327,publication_ready:true}]}),search:async()=>({reviews:[record],total:1}),detail:async()=>record,profile:async()=>snapshot,feedback:async()=>({latest:null,history:[]}),session:async()=>({review_state_protocol:2,human_statuses:['ordinary','uncertain','suspected']})};
   const context={generation:0,classId:'fixture',className:'测试班',contest:{id:1327,title:'C语言程序设计 C4',problems:[{id:101,label:'A',title:'输入输出练习'}]},summary:{rows:[{userId:'11',studentId:'20260001',name:'测试同学',status:'matched'}]}};
   const panel=createAiReviewPanel(host,{...core,featureClient:()=>client},()=>context);await panel.setActive(true);await panel.openDetail(record.submission_id);
-  const profile=host.querySelector('.ar-profile'),text=profile.innerText,technical=profile.querySelector('.ar-profile-technical');
-  assert(text.includes('C语言 C4')&&text.includes('本次仅能查看这一场比赛'),'course title and honest single scope');
-  assert(text.includes('6 份可比较的代码中，0 份包含说明性注释'),'plain-language comment observation');assert(text.includes('6 份可比较的代码中，0 份包含额外输入失败检查'),'plain-language input observation');
-  assert(text.includes('2026-10-16 16:10:48（北京时间）'),'Beijing timestamp');assert(!/1327|T08:10|反馈水位|profiles-internal|sha256-hidden/.test(text),'technical values hidden by default');assert(technical&&!technical.open,'technical details collapsed');
+  const profile=host.querySelector('.ar-profile'),text=profile.innerText;
+  assert(text.includes('历史命中该记录的代码'),'compact heading');
+  assert(text.includes('暂无历史命中记录'),'empty history is explicit');
+  assert(!/习惯参照|技术详情|可比较的代码|统计更新|当前画像包含/.test(text),'narrative wall removed');
+  snapshot.profile.evidence=[{submission_id:'8513000',contest_id:1327,rule_reasons:['input_status_condition_candidate']},{submission_id:'8513001',contest_id:1327,rule_reasons:[]},{submission_id:record.submission_id,contest_id:1327,rule_reasons:['input_status_condition_candidate']}];
+  await panel.openDetail(record.submission_id);await new Promise(resolve=>setTimeout(resolve,10));
+  const links=[...host.querySelectorAll('.ar-profile a')];
+  assert(links.length===1&&links[0].href.endsWith('/submission/8513000'),'only other hit submissions become source links');
+  assert(host.querySelector('.ar-profile').getBoundingClientRect().height<130,'history block stays compact');
   assert(!host.innerText.includes('可执行代码差异：0.0%'),'withheld change cannot become a fake zero diff');
-  technical.open=true;assert(profile.innerText.includes('反馈水位')&&profile.innerText.includes('404'),'technical data remains inspectable');technical.open=false;
-  window.profileReadabilityFixture={panel,host};return {passed:true,naturalLanguage:true,courseNames:true,beijingTime:true,coverageGap:true,technicalCollapsed:true,redactedEvidence:true};
+  snapshot.profile.evidence=Array.from({length:30},(_,i)=>({submission_id:String(8700000+i),contest_id:1327,rule_reasons:i===29?[]:['input_status_condition_candidate'],needs_recompute:i===29}));
+  await panel.openDetail(record.submission_id);await new Promise(resolve=>setTimeout(resolve,10));
+  const large=host.querySelector('.ar-profile');assert(large.querySelectorAll('a').length===6&&!large.querySelector('details').open,'long histories start with six links');
+  large.querySelector('summary').click();await new Promise(resolve=>setTimeout(resolve,10));assert(large.querySelectorAll('a').length===30&&large.textContent.includes('待重核'),'remaining hits and invalidated comparisons remain available');
+  panel.setActive(false);
+  return {passed:true,compactHistory:true,sourceLinksOnly:true,currentAndUnhitExcluded:true};
 })()

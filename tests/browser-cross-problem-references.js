@@ -85,12 +85,12 @@
   try{
     panel=createAiReviewPanel(host,{...core,featureClient:()=>client},()=>context);
     await panel.setActive(true);await panel.openDetail(record.submission_id);
-    assert(refs.length===30&&comparison()&&!comparison().open,'thirty cross-contest references start collapsed');
-    await delay(15);assert(calls.resolver.length===0&&calls.source.length===0&&calls.runs.length===0&&calls.oj.length===0,'opening current detail performs zero historical or OJ requests');
+    assert(refs.length===30&&comparison()&&comparison().open,'cross-contest comparison opens by default');
+    await loaded(specs[0]);assert(calls.oj.length===1,'only the first selected comparison loads by default');
     assert(!current().innerText.includes('读取失败')&&!current().innerText.includes('404'),'collapsed history has no error flood');
     const note=current().querySelector('textarea'),mark=current().querySelector('[aria-label="人工复核结论"]');assert(note&&mark,'manual editor is ready independently of history');note.value='历史对照未读取也能填写的草稿';mark.value='uncertain';
     assert(current().textContent.includes('CURRENT_TARGET_ORIGINAL'),'current source is visible before expanding history');
-    comparison().querySelector('summary').click();await loaded(specs[0]);
+    await loaded(specs[0]);
     assert(calls.source.some(call=>call.id===specs[0].id&&call.run===c3Run),'first reference uses its explicit C3 source locator');
     assert(view().textContent.includes(String(specs[0].problem)),'missing reference problem ID is filled by the exact historical metadata');
     assert(!calls.oj.includes(specs[1].id),'expanding does not prefetch the second reference');
@@ -119,6 +119,6 @@
     assert(current().querySelector('textarea')===newNote&&newNote.value==='切换提交后的新草稿','late historical response preserves the new editor and draft');
     assert(specs.slice(5).every(item=>!calls.resolver.includes(item.id)&&!calls.oj.includes(item.id)),'the other twenty-five references are never eagerly resolved or read');
     assert(sessionCalls===0&&calls.unexpected.length===0,'reference reads never request write identity or unrelated endpoints');
-    return {passed:true,synthetic:true,referenceCount:30,initialHistoryRequests:0,firstReferenceRun:c3Run,secondReferenceRun:c1Run,missingProblemResolved:true,strictAuthorBinding:true,hashMismatchRejected:true,lazyNavigation:true,successfulCacheReused:true,localFailureRetry:true,currentCodeAndDraftPreserved:true,feedbackFresh:true,staleResponseIgnored:true,sessionRequests:sessionCalls};
+    return {passed:true,synthetic:true,referenceCount:30,initialHistoryRequests:1,firstReferenceRun:c3Run,secondReferenceRun:c1Run,missingProblemResolved:true,strictAuthorBinding:true,hashMismatchRejected:true,lazyNavigation:true,successfulCacheReused:true,localFailureRetry:true,currentCodeAndDraftPreserved:true,feedbackFresh:true,staleResponseIgnored:true,sessionRequests:sessionCalls};
   }finally{oldRead.resolve();panel?.setActive(false);window.fetch=nativeFetch;}
 })()
