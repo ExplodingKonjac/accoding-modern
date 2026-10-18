@@ -27,16 +27,12 @@
     node.addEventListener('click', handler);
     return node;
   };
-  let disabled = false;
-  try { disabled = sessionStorage.getItem('am-disabled') === '1'; } catch (_) {}
   const setDisabled = value => {
-    try { sessionStorage.setItem('am-disabled', value ? '1' : '0'); } catch (_) {}
+    interfacePreference.setDisabled(value);
     location.reload();
   };
-  if (disabled) {
-    const restore = button('启用新版界面', () => setDisabled(false));
-    restore.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;padding:12px 20px;background:#2458d3;color:white;border:0;border-radius:10px;cursor:pointer';
-    document.body.append(restore);
+  if (interfacePreference.disabled()) {
+    mountOriginalInterfaceControl(interfacePreference);
     return;
   }
   const style = el('style', '');

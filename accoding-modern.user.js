@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.20.6
+// @version      1.20.7
 // @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @include      https://accoding-4000.e1.buaa.edu.cn/*
@@ -23,7 +23,7 @@
 
 (() => {
 'use strict';
-const ACCODING_MODERN_VERSION="1.20.6";
+const ACCODING_MODERN_VERSION="1.20.7";
 // Runtime URL compatibility for the direct site and BUAA VPN reverse proxy.
 // The VPN keeps the upstream app under /https-4000/<opaque-token>/, so absolute
 // root requests and pathname checks must be evaluated relative to that prefix.
@@ -429,6 +429,60 @@ function mountContestBoard(Core) {
 }
 
 mountContestBoard(createContestCore());
+// Share the remembered choice across direct/VPN entrances when userscript storage is available.
+function createInterfacePreference({getShared, setShared, local = () => globalThis.localStorage, session = () => globalThis.sessionStorage} = {}) {
+  const key = 'am-remember-disabled', sessionKey = 'am-disabled';
+  const read = (storage, name) => { try { return storage()?.getItem(name); } catch (_) { return null; } };
+  const write = (storage, name, value) => { try { storage()?.setItem(name, value); } catch (_) {} };
+  function remembered() {
+    try {
+      const value = getShared?.(key, null);
+      if (value === '1' || value === '0') return value === '1';
+    } catch (_) {}
+    return read(local, key) === '1';
+  }
+  function remember(value) {
+    const stored = value ? '1' : '0';
+    try { setShared?.(key, stored); } catch (_) {}
+    write(local, key, stored);
+    // Clearing the remembered choice leaves this tab in the original interface.
+    write(session, sessionKey, '1');
+  }
+  function setDisabled(value) {
+    if (!value) {
+      try { setShared?.(key, '0'); } catch (_) {}
+      write(local, key, '0');
+    }
+    write(session, sessionKey, value ? '1' : '0');
+  }
+  return {remembered, remember, setDisabled, disabled: () => remembered() || read(session, sessionKey) === '1'};
+}
+
+function mountOriginalInterfaceControl(preference, {document: doc = document, reload = () => location.reload()} = {}) {
+  if (doc.getElementById('am-interface-control')) return;
+  const style = doc.createElement('style');
+  style.textContent = `
+#am-interface-control{position:fixed;bottom:20px;left:20px;z-index:1040;display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;max-width:calc(100vw - 40px);box-sizing:border-box;padding:8px 12px;border:1px solid #dce3ed;border-radius:10px;background:#fff;color:#202b40;box-shadow:0 4px 20px #15244020;font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+#am-interface-control label{display:flex;align-items:center;gap:8px;min-height:44px;margin:0;font:inherit;cursor:pointer}
+#am-interface-control input{width:18px;height:18px;margin:0;accent-color:#2458d3}
+#am-interface-control button{min-height:44px;padding:10px 16px;border:0;border-radius:8px;background:#2458d3;color:#fff;font:inherit;cursor:pointer}
+#am-interface-control :focus-visible{outline:2px solid #497ce0;outline-offset:3px}
+@media print{#am-interface-control{display:none}}
+`;
+  doc.head.append(style);
+  const panel = doc.createElement('div'); panel.id = 'am-interface-control';
+  const label = doc.createElement('label');
+  const checkbox = doc.createElement('input'); checkbox.type = 'checkbox';
+  checkbox.checked = preference.remembered();
+  checkbox.addEventListener('change', () => preference.remember(checkbox.checked));
+  label.append(checkbox, '记住不使用新版界面');
+  const enable = doc.createElement('button'); enable.type = 'button';
+  enable.textContent = '启用新版界面';
+  enable.addEventListener('click', () => { preference.setDisabled(false); reload(); });
+  panel.append(label, enable); doc.body.append(panel);
+}
+
+const interfacePreference=createInterfacePreference({getShared:typeof GM_getValue==='function'?GM_getValue:undefined,setShared:typeof GM_setValue==='function'?GM_setValue:undefined});
 // The contest Angular app replaces its ng-view on hash navigation and has no #page/#navbar.
 // Scope styles to its stable template selectors so late ng-include and route changes work.
 (() => {
@@ -498,15 +552,11 @@ mountContestBoard(createContestCore());
     queue([...document.querySelectorAll('.markdown-body')]);
   };
   installMathJaxRepair();
-  let disabled=false;
-  try { disabled=sessionStorage.getItem('am-disabled')==='1'; } catch (_) {}
-  const toggle=value=>{try{sessionStorage.setItem('am-disabled',value?'1':'0');}catch(_){}location.reload();};
-  const control=document.createElement('button');control.type='button';
-  if(disabled){
-    control.textContent='启用新版界面';
-    control.style.cssText='position:fixed;bottom:24px;left:24px;z-index:1040;padding:10px 16px;border:0;border-radius:8px;background:#2458d3;color:#fff;cursor:pointer';
-    control.addEventListener('click',()=>toggle(false));document.body.append(control);return;
+  const toggle=value=>{interfacePreference.setDisabled(value);location.reload();};
+  if(interfacePreference.disabled()){
+    mountOriginalInterfaceControl(interfacePreference);return;
   }
+  const control=document.createElement('button');control.type='button';
   const style=document.createElement('style');style.id='am-ng-style';
   style.textContent=`
 html.am-ng{--ng-bg:#f5f7fb;--ng-card:#fff;--ng-line:#e3e9f2;--ng-ink:#202b40;--ng-muted:#6b7a90;--ng-blue:#2458d3;--ng-soft:#edf3ff;background:var(--ng-bg)}
@@ -797,16 +847,12 @@ function mountListFilter({page, table, wrap, toolbar, input, info, empty, dataRo
     node.addEventListener('click', handler);
     return node;
   };
-  let disabled = false;
-  try { disabled = sessionStorage.getItem('am-disabled') === '1'; } catch (_) {}
   const setDisabled = value => {
-    try { sessionStorage.setItem('am-disabled', value ? '1' : '0'); } catch (_) {}
+    interfacePreference.setDisabled(value);
     location.reload();
   };
-  if (disabled) {
-    const restore = button('启用新版界面', () => setDisabled(false));
-    restore.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;padding:12px 20px;background:#2458d3;color:white;border:0;border-radius:10px;cursor:pointer';
-    document.body.append(restore);
+  if (interfacePreference.disabled()) {
+    mountOriginalInterfaceControl(interfacePreference);
     return;
   }
   const style = el('style', '');

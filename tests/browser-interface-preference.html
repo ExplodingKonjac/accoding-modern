@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>界面偏好回归</title>
+<style>
+body{margin:0;font:16px/1.6 sans-serif;color:#202b40}nav{padding:16px;border-bottom:1px solid #ddd}nav ul{list-style:none;display:flex;gap:16px;padding:0}a{color:#2458d3}#page{padding:24px}button{cursor:pointer}.container-fluid{padding:20px}.navbar-middle{display:flex;gap:12px}
+</style>
+<body>
+<script type="module">
+import {createInterfacePreference, mountOriginalInterfaceControl} from '../src/interface-preference.mjs';
+const contest = new URLSearchParams(location.search).get('mode') === 'contest';
+document.body.innerHTML = contest
+  ? `<div class="container-fluid"><div ng-view><nav class="navbar-default"><a class="navbar-brand">Accoding</a><ul class="navbar-middle"><li><a>比赛</a></li></ul></nav><div class="col-lg-2"><h4>回归赛事</h4></div><div class="col-lg-10"><h1>测试题目</h1><p>原站题目内容</p></div></div></div>`
+  : `<nav id="navbar"><a class="navbar-brand">Accoding</a><ul class="navbar-nav navbar-middle"><li><a class="nav-change">题目管理</a></li></ul></nav><div id="container"><main id="page"><h1>题目管理</h1><p>原站题目内容</p></main></div>`;
+const source = await (await fetch(contest ? '../src/contest-theme.js' : '../src/theme.js')).text();
+const preference = createInterfacePreference();
+new Function('pageWindow', 'ACCODING_MODERN_IS_APP', 'ACCODING_APP_PATHNAME', 'interfacePreference', 'mountOriginalInterfaceControl', source)(window, true, contest ? '/contest-ng/index.html' : '/problem/index', preference, mountOriginalInterfaceControl);
+document.body.dataset.ready = 'true';
+</script>
+</body>
+</html>

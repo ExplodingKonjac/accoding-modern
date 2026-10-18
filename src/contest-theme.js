@@ -67,15 +67,11 @@
     queue([...document.querySelectorAll('.markdown-body')]);
   };
   installMathJaxRepair();
-  let disabled=false;
-  try { disabled=sessionStorage.getItem('am-disabled')==='1'; } catch (_) {}
-  const toggle=value=>{try{sessionStorage.setItem('am-disabled',value?'1':'0');}catch(_){}location.reload();};
-  const control=document.createElement('button');control.type='button';
-  if(disabled){
-    control.textContent='启用新版界面';
-    control.style.cssText='position:fixed;bottom:24px;left:24px;z-index:1040;padding:10px 16px;border:0;border-radius:8px;background:#2458d3;color:#fff;cursor:pointer';
-    control.addEventListener('click',()=>toggle(false));document.body.append(control);return;
+  const toggle=value=>{interfacePreference.setDisabled(value);location.reload();};
+  if(interfacePreference.disabled()){
+    mountOriginalInterfaceControl(interfacePreference);return;
   }
+  const control=document.createElement('button');control.type='button';
   const style=document.createElement('style');style.id='am-ng-style';
   style.textContent=`
 html.am-ng{--ng-bg:#f5f7fb;--ng-card:#fff;--ng-line:#e3e9f2;--ng-ink:#202b40;--ng-muted:#6b7a90;--ng-blue:#2458d3;--ng-soft:#edf3ff;background:var(--ng-bg)}
