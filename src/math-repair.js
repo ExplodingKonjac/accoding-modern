@@ -12,10 +12,10 @@ function createMathRepair(bundledSource) {
       let math=pageWindow.MathJax;
       if(vpn||!math?.Hub?.Queue){
         if(math?.Hub?.getAllJax)for(const jax of math.Hub.getAllJax())jax.Remove();
-        // A non-executable script supplies a stable root to MathJax's bootstrap
-        // scanner, instead of the VPN-rewritten CDN URL and config query.
+        // MathJax scans scripts backwards across the whole document. Place this
+        // after the original body script so its CDN config query is not reused.
         const marker=document.createElement('script');marker.type='application/x-accoding-mathjax';
-        marker.src='https://accoding-mathjax.invalid/MathJax.js';document.head.append(marker);
+        marker.src='https://accoding-mathjax.invalid/MathJax.js';document.body.append(marker);
         pageWindow.MathJax={root:'https://accoding-mathjax.invalid',skipStartupTypeset:true,showMathMenu:false,
           jax:['input/TeX','output/SVG'],extensions:[],menuSettings:{renderer:'SVG',locale:'en'},
           tex2jax:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']],processEscapes:true},

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.21.1
+// @version      1.21.2
 // @description  界面美化、班级名册、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @include      https://accoding-4000.e1.buaa.edu.cn/*
@@ -23,7 +23,7 @@
 
 (() => {
 'use strict';
-const ACCODING_MODERN_VERSION="1.21.1";
+const ACCODING_MODERN_VERSION="1.21.2";
 // Runtime URL compatibility for the direct site and BUAA VPN reverse proxy.
 // The VPN keeps the upstream app under /https-4000/<opaque-token>/, so absolute
 // root requests and pathname checks must be evaluated relative to that prefix.
@@ -86,10 +86,10 @@ function createMathRepair(bundledSource) {
       let math=pageWindow.MathJax;
       if(vpn||!math?.Hub?.Queue){
         if(math?.Hub?.getAllJax)for(const jax of math.Hub.getAllJax())jax.Remove();
-        // A non-executable script supplies a stable root to MathJax's bootstrap
-        // scanner, instead of the VPN-rewritten CDN URL and config query.
+        // MathJax scans scripts backwards across the whole document. Place this
+        // after the original body script so its CDN config query is not reused.
         const marker=document.createElement('script');marker.type='application/x-accoding-mathjax';
-        marker.src='https://accoding-mathjax.invalid/MathJax.js';document.head.append(marker);
+        marker.src='https://accoding-mathjax.invalid/MathJax.js';document.body.append(marker);
         pageWindow.MathJax={root:'https://accoding-mathjax.invalid',skipStartupTypeset:true,showMathMenu:false,
           jax:['input/TeX','output/SVG'],extensions:[],menuSettings:{renderer:'SVG',locale:'en'},
           tex2jax:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']],processEscapes:true},

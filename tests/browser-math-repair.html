@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>VPN MathJax regression</title>
+<body>
+<div class="markdown-body">行内 $a_i+b_j$<p>$$\sum_{k=1}^{n} k=\frac{n(n+1)}{2}$$</p><pre><code>$leave_me$</code></pre></div>
+<!-- Reproduce the original OJ's body script without making a CDN request. -->
+<script type="application/x-original-mathjax" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-MML-AM_CHTML"></script>
+<script>const pageWindow=window,ACCODING_VPN_PREFIX='/https-4000/fixture';</script>
+<script src="../src/math-repair.js"></script>
+<script type="module">
+  window.fixtureMath=createMathRepair(await fetch('../vendor/mathjax2/mathjax-svg.js').then(r=>r.text()));
+</script>
+</body>
+</html>
