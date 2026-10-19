@@ -15,7 +15,8 @@ document.body.innerHTML = contest
   : `<nav id="navbar"><a class="navbar-brand">Accoding</a><ul class="navbar-nav navbar-middle"><li><a class="nav-change">题目管理</a></li></ul></nav><div id="container"><main id="page"><h1>题目管理</h1><p>原站题目内容</p></main></div>`;
 const source = await (await fetch(contest ? '../src/contest-theme.js' : '../src/theme.js')).text();
 const preference = createInterfacePreference();
-new Function('pageWindow', 'ACCODING_MODERN_IS_APP', 'ACCODING_APP_PATHNAME', 'interfacePreference', 'mountOriginalInterfaceControl', source)(window, true, contest ? '/contest-ng/index.html' : '/problem/index', preference, mountOriginalInterfaceControl);
+const css = await (await fetch('../src/workspace.css')).text();
+new Function('pageWindow', 'ACCODING_MODERN_IS_APP', 'ACCODING_APP_PATHNAME', 'interfacePreference', 'mountOriginalInterfaceControl', 'ACCODING_WORKSPACE_CSS', source)(window, true, contest ? '/contest-ng/index.html' : '/problem/index', preference, mountOriginalInterfaceControl, css);
 document.body.dataset.ready = 'true';
 </script>
 </body>

@@ -5,13 +5,13 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
   root.innerHTML = `<style>
     :host{all:initial;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:#25344b}
     .problem-review-page{position:fixed;inset:0;z-index:2147483001;overflow:auto;background:#eef3f9;padding:20px max(20px,calc((100vw - 1600px)/2));box-sizing:border-box}.problem-review-page>.toolbar{background:#fff;border:1px solid #dfe7f0;border-radius:12px;padding:12px 18px;position:sticky;top:0;z-index:2}.problem-review-page>.panel{margin:14px 0}.overlay:has(.ar-review-page:not([hidden])),.problem-review-page:has(.ar-review-page:not([hidden])){overflow:hidden}@media(max-width:700px){.problem-review-page{padding:8px}}
-    .toolbar>.row{gap:8px}.toolbar>h2,.toolbar>div:first-child h2{margin-bottom:0}.toolbar{row-gap:16px}.toolbar input,.toolbar select,.toolbar button{min-height:40px}.toolbar>.row select{min-width:150px}.student-head{flex-wrap:wrap}.student-head>.row{justify-content:flex-end;gap:8px}[role=tablist]{display:inline-flex;background:#e3eaf4;padding:5px;border-radius:12px;gap:4px}[role=tablist] button{border:0;background:transparent;min-width:115px}[role=tablist] button.primary{background:#fff;color:#235de4;box-shadow:0 2px 5px #17385912}textarea{font:inherit}@media(max-width:800px){.toolbar>.row{width:100%}.toolbar>.row>input,.toolbar>.row>select{flex:1;min-width:120px}.student-head>.row{justify-content:flex-start}[role=tablist]{display:flex}[role=tablist] button{flex:1;min-width:0}}
+    .toolbar>.row{gap:8px}.toolbar>h2,.toolbar>div:first-child h2{margin-bottom:0}.toolbar{row-gap:16px}.toolbar input,.toolbar select,.toolbar button{min-height:40px}.toolbar>.row select{min-width:150px}.student-head{flex-wrap:wrap}.student-head>.row{justify-content:flex-end;gap:8px}[aria-label="班级比赛页面"]{display:inline-flex;background:#e3eaf4;padding:5px;border-radius:12px;gap:4px}[aria-label="班级比赛页面"] button{border:0;background:transparent;min-width:115px}[aria-label="班级比赛页面"] button.primary{background:#fff;color:#235de4;box-shadow:0 2px 5px #17385912}textarea{font:inherit}@media(max-width:800px){.toolbar>.row{width:100%}.toolbar>.row>input,.toolbar>.row>select{flex:1;min-width:120px}.student-head>.row{justify-content:flex-start}[aria-label="班级比赛页面"]{display:flex}[aria-label="班级比赛页面"] button{flex:1;min-width:0}}
     *{box-sizing:border-box}button,input,select{font:inherit}button,a,input,select{outline-offset:3px}button{cursor:pointer;border:1px solid #d9e2ee;border-radius:9px;background:white;color:#334862;padding:8px 14px}button:hover{background:#edf4ff}button:disabled{opacity:.5;cursor:wait}button.primary{background:#235de4;color:white;border-color:#235de4}button.danger{color:#a43141}.launch{position:fixed;bottom:100px;right:26px;z-index:9998;box-shadow:0 8px 24px #18345322;background:#fff;color:#2458ca;font-weight:700}
     [hidden]{display:none!important}.overlay{position:fixed;inset:0;z-index:2147483000;background:#eef3f9;overflow:auto}.shell{max-width:1500px;margin:auto;padding:24px 32px 60px}.top,.toolbar,.row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.top{justify-content:space-between;margin-bottom:22px}.eyebrow{font-size:12px;color:#4270bc;font-weight:700;letter-spacing:2px}h1{font-size:29px;line-height:1.3;margin:4px 0}h2{font-size:20px;margin:0 0 12px}h3{margin:0 0 10px;font-size:17px}p{margin:6px 0 14px}.muted{color:#6c7b91;font-size:13px}.tag{background:#e3ebfb;color:#385ca0;padding:4px 10px;border-radius:20px;font-size:12px}input,select{border:1px solid #ccd9e9;border-radius:8px;background:#fff;color:#25344b;padding:9px 11px;max-width:100%}input[type=file]{width:100%}label{display:flex;align-items:center;gap:8px}.panel{border:1px solid #dfe7f0;border-radius:16px;background:white;padding:22px;margin:18px 0;box-shadow:0 4px 16px #20335404}.toolbar{justify-content:space-between}.message{min-height:42px;padding:9px 12px;font-size:14px;color:#496680;background:#e8f0ff;border-radius:8px;margin-top:14px}.message.error{background:#fff0ed;color:#a33e36}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0}.metric{background:#fff;border:1px solid #dfe7f0;border-radius:14px;padding:18px}.metric strong{display:block;font-size:32px;line-height:1.3;color:#234f99}.chart{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(175px,1fr))}.problem{padding:16px;border:1px solid #e1e8f1;border-radius:12px}.problem b{font-size:25px}.problem small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#76869c}.bar{height:10px;border-radius:8px;background:#edf1f7;position:relative;margin:9px 0 5px}.bar i{position:absolute;left:0;top:0;bottom:0;border-radius:8px;background:#adc4f4}.bar em{position:absolute;left:0;top:0;bottom:0;border-radius:8px;background:#2b68e8}.counts{display:flex;justify-content:space-between;font-size:13px}.counts span:first-child{color:#235de4;font-weight:700}.table-wrap{overflow:auto;max-height:560px}table{width:100%;border-collapse:collapse;font-size:14px;white-space:nowrap}th{text-align:left;position:sticky;top:0;background:#f5f8fc;z-index:1;color:#617189;font-weight:600}th,td{padding:12px;border-bottom:1px solid #e8edf4}td button{padding:4px 10px;font-size:13px}.ac{color:#16806b;font-weight:700}.pending{color:#997214}.bad{color:#c05b4d}.empty{text-align:center;padding:48px 16px;color:#687c98}.pager{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-top:14px}.preview{max-height:220px;overflow:auto;margin-top:14px}.student-head{display:flex;justify-content:space-between;gap:14px;align-items:center}.wide{min-width:260px}a{color:#235de4;text-decoration:none}dialog{border:1px solid #d7e2f0;border-radius:14px;max-width:440px;width:90%;padding:24px;color:#25344b}dialog::backdrop{background:#17253a77}
     #rank-table th,#rank-table td{padding:10px 8px}#rank-table .muted{font-size:12px}
     @media(max-width:800px){.shell{padding:18px 14px}.cards{grid-template-columns:repeat(2,1fr)}.panel{padding:16px}.launch{right:16px}.wide{min-width:0;width:100%}.chart{grid-template-columns:repeat(2,minmax(0,1fr))}}
   </style>
-  <button class="launch" type="button">▦ 班级</button>
+  <button class="launch" type="button">班级</button>
   <section class="overlay" hidden role="dialog" aria-modal="true" aria-label="班级管理">
     <div class="shell"><header class="top"><div><div class="eyebrow">ACCODING · CLASSROOM</div><h1>班级</h1><span class="tag">${ACCODING_MODERN_VERSION}</span></div><button data-action="close">← 返回 OJ</button></header>
     <div class="toolbar"><div class="row"><select id="class-select" aria-label="选择班级"></select><button data-action="import">＋ 导入名册</button></div><div class="row"><button data-action="rename">重命名</button><button data-action="export">导出名册 CSV</button><button class="danger" data-action="delete">删除班级</button></div></div>
@@ -26,6 +26,7 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     <section id="student-panel" class="panel" hidden><div class="student-head"><div><h2 id="student-title"></h2></div><div class="row"><select id="submission-scope" aria-label="提交范围"><option value="contest">赛内提交</option><option value="upsolve" disabled>赛后提交</option><option value="all" disabled>全部提交</option></select><select id="problem-filter" aria-label="筛选题目"><option value="all">全部题目</option></select><select id="result-filter" aria-label="筛选提交结果"><option value="all">全部结果</option><option value="AC">仅通过</option><option value="failed">未通过（已评测）</option><option value="pending">评测中</option></select><button data-action="refresh-submissions">刷新提交</button><button data-action="close-student">收起</button></div></div><div id="student-problems" class="table-wrap" hidden style="margin:16px 0"></div><div id="submissions" class="table-wrap"></div><div id="submission-pager" class="pager"></div></section></main>
     </div><section id="problem-review-page" class="problem-review-page" hidden aria-label="本题提交核查"><div class="toolbar"><h2>本题提交核查名单</h2><button data-action="close-problem-review">返回班级页面</button></div><div id="problem-review-content" class="panel"></div></section><dialog id="confirm-dialog"><h2 id="dialog-title"></h2><p id="dialog-text"></p><input id="dialog-input" maxlength="80" hidden><div class="pager"><button data-action="dialog-cancel">取消</button><button class="primary" data-action="dialog-confirm">确认</button></div></dialog>
   </section>`;
+  if(document.documentElement.matches('.am,.am-ng'))layoutClassWorkspace(root);
   const $ = selector => root.querySelector(selector);
   const classStorage=createClassStorage(localStorage,{
     get:typeof GM_getValue==='function'?GM_getValue:undefined,
@@ -39,7 +40,8 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
   let clockOffset = 0;
   let upsolve = null, upsolveController = null, pageMode = 'contest', rankingPage = 0;
   const isUpsolve = () => pageMode === 'upsolve';
-  let storageError = '';
+  let storageError = '', previousOverflow = '';
+  function closeClasses(){if($('.overlay').hidden)return;$('.overlay').hidden=true;document.body.style.overflow=previousOverflow;resetContest();opener?.focus();}
   try {classes=classStorage.load();}
   catch (e) {
     storageError='班级名册无法安全同步，已停止写入，避免覆盖原名册。'+e.message;
@@ -86,8 +88,10 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
     $('#class-select').replaceChildren(...(classes.length ? classes.map(c => option(c.id, `${c.name} · ${c.members.length} 人`)) : [option('', '尚未创建班级')]));
     $('#class-select').value = currentId;
     $('#workspace').hidden = !selected(); $('#empty').hidden = !!selected();
+    for(const control of root.querySelectorAll('.class-contest-picker,.class-rail>[role=tablist]'))control.hidden=!selected();
     for (const action of ['rename','delete','export']) $(`[data-action="${action}"]`).disabled = !selected();
     drawMembers(); drawStats();
+    host.dispatchEvent(new Event('am-class-change'));
   }
   function drawStats() {
     const c = selected(); if (!c) return;
@@ -378,7 +382,7 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
   root.addEventListener('click',event=>{
     const action=event.target.closest('[data-action]')?.dataset.action;if(!action)return;
     try {
-      if(action==='close'){$('.overlay').hidden=true;resetContest();opener?.focus();}
+      if(action==='close')closeClasses();
       if(action==='import'){$('#import-panel').hidden=false;$('#file').focus();}
       if(action==='cancel-import')$('#import-panel').hidden=true;
       if(action==='create'){
@@ -406,9 +410,10 @@ function mountClassManager(core, contestCore, upsolveCore, upsolveReader, review
       if(action==='close-student'){$('#student-panel').hidden=true;activeStudent=null;}
     }catch(e){notice(e.message,true);}
   });
-  $('.launch').onclick=()=>{opener=$('.launch');$('.overlay').hidden=false;drawClasses();$('[data-action="close"]').focus();void discoverContests();if(storageError)notice(storageError,true);};
+  drawClasses();
+  $('.launch').onclick=()=>{opener=document.activeElement;previousOverflow=document.body.style.overflow;document.body.style.overflow='hidden';$('.overlay').hidden=false;drawClasses();$('[data-action="close"]').focus();void discoverContests();if(storageError)notice(storageError,true);};
   root.addEventListener('keydown',event=>{
-    if(event.key==='Escape'&&!$('#confirm-dialog').open){$('.overlay').hidden=true;resetContest();opener?.focus();}
+    if(event.key==='Escape'&&!$('#confirm-dialog').open)closeClasses();
     if(event.key==='Tab'&&!$('.overlay').hidden&&!$('#confirm-dialog').open){const controls=[...$('.overlay').querySelectorAll('button,input,select,a[href]')].filter(e=>!e.disabled&&e.getClientRects().length);const first=controls[0],last=controls.at(-1);if(event.shiftKey&&root.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&root.activeElement===last){event.preventDefault();first?.focus();}}
   });
   window.addEventListener('storage',event=>{if(event.key===key){notice('其他页面修改了班级名册，请刷新页面后继续，避免覆盖。',true);storageError='请刷新页面，载入其他页面更新后的班级名册。';}});

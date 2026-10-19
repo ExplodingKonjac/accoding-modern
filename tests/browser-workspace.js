@@ -1,0 +1,48 @@
+// Run on /contest-ng/index.html#/1326 in `npm run preview`.
+// Only the isolated local preview's synthetic data is used.
+window.__workspaceRun=(async()=>{
+  if(location.hostname!=='127.0.0.1'||!document.querySelector('.preview-notice'))throw Error('Use the local preview');
+  const checks={};
+  const check=(name,value)=>{if(!value)throw Error(name);checks[name]=true;};
+  const settle=async(predicate)=>{for(let i=0;i<100;i++){if(predicate())return;await new Promise(resolve=>setTimeout(resolve,25));}throw Error('UI did not settle');};
+  const header=document.querySelector('.am-class-header'),host=document.getElementById('am-classes'),root=host.shadowRoot;
+  check('class selection in header',!!header.querySelector('select'));
+  check('board entry in left panel',!!document.querySelector('[ng-view]>.col-lg-2 .am-board-control'));
+  check('upsolve action in left panel',!!document.querySelector('[ng-view]>.col-lg-2 #am-upsolve-activation'));
+  check('fullscreen host at body level',document.querySelector('#am-contest-tools').parentElement===document.body);
+  const board=document.querySelector('#am-contest-tools').shadowRoot;
+  document.querySelector('.am-board-control').click();
+  await settle(()=>board.querySelectorAll('.column').length===6);
+  check('board reads statistics',board.querySelector('.summary').textContent.includes('105'));
+  board.querySelector('.overlay').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+  check('escape closes board',board.querySelector('.overlay').hidden);
+  const previous=header.querySelector('select').value;
+  header.querySelector('button').focus();header.querySelector('button').click();
+  check('class overlay locks background',document.body.style.overflow==='hidden');
+  check('class competition controls in rail',!!root.querySelector('.class-rail #contest-select'));
+  const select=root.querySelector('#class-select');select.value='demo-a';select.dispatchEvent(new Event('change'));
+  await settle(()=>[...root.querySelector('#contest-select').options].some(option=>option.value==='1326'));
+  root.querySelector('#contest-select').value='1326';root.querySelector('[data-action=load]').click();
+  await settle(()=>!root.querySelector('[data-action=export-score]').disabled);
+  check('statistics match roster',root.querySelector('#metrics').textContent.includes('36'));
+  root.querySelector('[data-action=upsolve-tab]').click();root.querySelector('[data-action=upsolve]').click();
+  await settle(()=>root.querySelector('#rank-table').textContent.includes('林同学'));
+  check('upsolve ranking reachable',!root.querySelector('#upsolve-pane').hidden);
+  root.querySelector('[data-action=review-tab]').click();
+  check('review reachable',!root.querySelector('#review-pane').hidden);
+  check('review branches remain horizontal',getComputedStyle(root.querySelector('.ar-review-nav[role=tablist]')).flexDirection==='row');
+  root.querySelector('[data-action=close]').click();
+  check('focus restored',document.activeElement===header.querySelector('button'));
+  check('background unlocked',document.body.style.overflow!=='hidden');
+  header.querySelector('select').value='demo-b';header.querySelector('select').dispatchEvent(new Event('change'));
+  check('header selection updates workspace',select.value==='demo-b');
+  header.querySelector('select').value=previous;header.querySelector('select').dispatchEvent(new Event('change'));
+  const oldHash=location.hash;location.hash='#/1326/rank';
+  await settle(()=>document.querySelector('.am-ng-table-wrap')&&document.querySelector('.am-settings-panel .am-ng-reset'));
+  check('one header after route change',document.querySelectorAll('.am-topbar').length===1);
+  check('one tool panel after route change',document.querySelectorAll('.am-tools').length===1);
+  check('reset remains in settings',!!document.querySelector('.am-settings-panel .am-ng-reset'));
+  check('page does not overflow',document.documentElement.scrollWidth<=innerWidth);
+  location.hash=oldHash;
+  return checks;
+})();
