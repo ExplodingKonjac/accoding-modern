@@ -124,8 +124,8 @@ export function createAiReviewCore() {
   function featureClient(getToken,fetcher=fetch,version=3){
     const sourceCache=new Map(),referenceRuns=new Map();
     const remember=(cache,key,value)=>{cache.delete(key);cache.set(key,value);if(cache.size>128)cache.delete(cache.keys().next().value);return value;};
-    async function request(path,body,signal,absent=false,write=false){
-      const token=version===4&&!write?'':getToken().trim();if(version!==4&&!token)throw new Error('请先在复核设置中填写只读令牌。');
+    async function request(path,body,signal,absent=false,write=false,writeToken){
+      const token=version===4&&!write?'':(writeToken??getToken()).trim();if(version!==4&&!token)throw new Error('请先在复核设置中填写只读令牌。');
       const res=await fetcher((version===4?apiV4:apiV3)+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(version===4?{'X-Review-State-Protocol':'2'}:{}),...(body?{'Content-Type':'application/json'}:{})},credentials:'omit',cache:'no-store',signal,body:body?JSON.stringify(body):undefined});
       if(res.status===404&&absent)return null;
       if(!res.ok){let body={};try{body=await res.json();}catch{}const error=new Error(body.detail||`复核请求失败（HTTP ${res.status}）`);error.httpStatus=res.status;throw error;}
@@ -171,8 +171,66 @@ export function createAiReviewCore() {
       for(const run of choices){try{return await read(run);}catch(error){if(error.httpStatus!==404)throw error;}}
       throw new Error('尚无可读取的历史冻结快照，请稍后重试或打开原提交');
     }
+    function validateSimilarity(record,contestId){
+      const ident=value=>/^[1-9]\d*$/.test(String(value));
+      if(!record||!ident(record.submission_id)||!ident(record.creator_id)||!ident(record.problem_id)||String(record.contest_id)!==String(contestId)||!hash(record.code_hash)
+        ||!['matched','no_match','too_short','unsupported','out_of_scope'].includes(record.status)||!Array.isArray(record.matches)||record.matches.length>3
+        ||(record.status==='matched')!==Boolean(record.matches.length)||!Number.isInteger(record.peer_count)||record.peer_count<record.matches.length)throw new Error('代码查重结果格式或比赛范围不一致');
+      const seen=new Set();
+      for(const match of record.matches){
+        const ref=match.reference;
+        if(!ref||!ident(ref.submission_id)||!ident(ref.creator_id)||!hash(ref.code_hash)||String(ref.creator_id)===String(record.creator_id)||String(ref.submission_id)===String(record.submission_id)
+          ||String(ref.contest_id)!==String(record.contest_id)||String(ref.problem_id)!==String(record.problem_id)||seen.has(String(ref.creator_id))
+          ||!Number.isFinite(match.similarity)||match.similarity<.95||match.similarity>1||!Number.isInteger(match.matched_tokens)||match.matched_tokens<1||!Array.isArray(match.snippets)||match.snippets.length>3)throw new Error('查重对照必须为同场同题的不同学生，且相似率至少为 95%');
+        for(const pair of match.snippets)for(const alias of ['current','reference']){
+          const s=pair[alias];if(!s||!Number.isInteger(s.start_line)||s.start_line<1||!Number.isInteger(s.end_line)||s.end_line<s.start_line||typeof s.quote!=='string'||s.quote.split('\n').length!==s.end_line-s.start_line+1)throw new Error('查重引用行号或原文无效');
+        }
+        seen.add(String(ref.creator_id));
+        if(match.annotation!=null)validatePairFeedback(match.annotation,{run_id:record.run_id,submission_id:record.submission_id,code_hash:record.code_hash,reference_id:ref.submission_id,reference_hash:ref.code_hash});
+      }
+      return record;
+    }
+    function validatePairFeedback(note,pair){
+      const identities=value=>[[String(value.submission_id),value.code_hash],[String(value.reference_id),value.reference_hash]].sort((a,b)=>a[0].localeCompare(b[0]));
+      if(!note||!Number.isInteger(note.id)||note.id<1||!['ordinary','uncertain','suspected'].includes(note.status)||typeof note.reason!=='string'||!note.reason.trim()||note.run_id!==pair.run_id||JSON.stringify(identities(note))!==JSON.stringify(identities(pair)))throw new Error('核对记录与这两份提交不一致');
+      return note;
+    }
+    async function peerSource(ref,current,signal){
+      validateSimilarity({...current,status:'matched',matches:[{reference:ref,similarity:1,matched_tokens:1,snippets:[]}],peer_count:1},current.contest_id);
+      if(!current.run_id)throw new Error('代码查重缺少冻结运行编号');
+      const source=await request(`/runs/${encodeURIComponent(current.run_id)}/sources/${encodeURIComponent(ref.submission_id)}`,null,signal);
+      for(const key of ['submission_id','creator_id','contest_id','problem_id','code_hash'])if(String(source?.[key])!==String(ref[key]))throw new Error('查重对照身份或源码哈希与冻结记录不一致');
+      if(source.run_id!=null&&source.run_id!==current.run_id)throw new Error('查重对照的冻结运行不一致');
+      return source;
+    }
     return {
       referenceSource,
+      peerSource,
+      async similaritySearch(query,signal){
+        const packet=await request('/code-similarity/search',query,signal);
+        if(packet.run_id!==query.run_id||packet.contest_id!==query.contest_id||packet.version!=='same-contest-peer-tokens-v1'||!Array.isArray(packet.records)||!Number.isInteger(packet.total)||packet.total<0||packet.records.length>query.limit)throw new Error('代码查重运行或返回格式不一致');
+        if(query.pair_view&&(packet.pair_view!==true||!['pair_count','source_count','status_count'].every(key=>Number.isInteger(packet[key])&&packet[key]>=0)||packet.total!==packet.pair_count+packet.status_count||packet.records.some(r=>r.status==='matched'&&r.matches?.length!==1)))throw new Error('代码查重服务尚未提供按代码对合并的结果，请更新本地复核核心。');
+        for(const record of packet.records){validateSimilarity({...record,run_id:packet.run_id},query.contest_id);if(!query.creator_ids.includes(String(record.creator_id))||(query.problem_id!=null&&record.problem_id!==query.problem_id)||(query.submission_ids&&!query.submission_ids.includes(String(record.submission_id))))throw new Error('代码查重结果与当前班级或题目不一致');}
+        return packet;
+      },
+      async similarityDetail(id,runId,contestId,signal){
+        const packet=await request(`/runs/${encodeURIComponent(runId)}/code-similarity/${encodeURIComponent(id)}`,null,signal);
+        if(packet.run_id!==runId||String(packet.submission_id)!==String(id)||packet.version!=='same-contest-peer-tokens-v1')throw new Error('代码查重详情与所选运行或提交不一致');
+        return validateSimilarity(packet,contestId);
+      },
+      async similarityFeedback(pair,signal){
+        const packet=await request('/code-similarity/feedback/history',pair,signal);
+        if(!packet||!Array.isArray(packet.history))throw new Error('核对记录格式有误');
+        for(const note of packet.history)validatePairFeedback(note,pair);
+        if(packet.latest!=null)validatePairFeedback(packet.latest,pair);
+        return packet;
+      },
+      async saveSimilarityFeedback(body,signal,token){
+        if(!['ordinary','uncertain','suspected'].includes(body.status)||!body.reason?.trim())throw new Error('请选择结论并填写理由');
+        const result=await request('/code-similarity/feedback',body,signal,false,true,token);
+        if(result.saved!==true)throw new Error('核对记录未保存');
+        validatePairFeedback(result.feedback,body);return result;
+      },
       session:(signal,write=false)=>request('/feedback/session',null,signal,false,write),
       profile:(creatorId,contestId,signal)=>request(`/profiles/${encodeURIComponent(creatorId)}?site=${encodeURIComponent('https://accoding.buaa.edu.cn:4000')}&contest_id=${encodeURIComponent(contestId)}`,null,signal),
       source:(id,runId,signal)=>request(`/runs/${encodeURIComponent(runId)}/sources/${encodeURIComponent(id)}`,null,signal),

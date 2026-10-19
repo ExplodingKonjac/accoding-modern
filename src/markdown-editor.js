@@ -39,7 +39,7 @@ function mountMarkdownEditor(Core) {
   function render() {
     if (!pageWindow.markdown?.toHTML) return;
     preview.innerHTML = pageWindow.markdown.toHTML(Core.toOJ(input.value), 'Maruku');
-    pageWindow.MathJax?.Hub?.Queue(['Typeset', pageWindow.MathJax.Hub, preview]);
+    accodingMath.typeset([preview]);
     updateSaved();
   }
   // Preserve the site's other editors and oninput handler; only this description uses conversion.
