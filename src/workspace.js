@@ -7,10 +7,11 @@ function workspaceIcon(name) {
 }
 
 function mountWorkspace() {
-  const modern=document.documentElement.matches('.am,.am-ng');
+  const submissionRoot=document.querySelector('#am-submission-review')?.shadowRoot;
+  const modern=document.documentElement.matches('.am,.am-ng')||!!submissionRoot;
   if(!modern)return;
   const make=(tag,cls,text)=>{const node=document.createElement(tag);node.className=cls;if(text)node.textContent=text;return node;};
-  let header=document.querySelector('.am-topbar');
+  let header=document.querySelector('.am-topbar')||submissionRoot?.querySelector('.am-topbar');
   if(!header){header=make('header','am-topbar');header.append(make('div','','比赛'));header.append(make('div','am-top-actions'));}
   const actions=header.querySelector('.am-top-actions');
   const classHost=document.getElementById('am-classes'),classRoot=classHost?.shadowRoot;
@@ -35,7 +36,7 @@ function mountWorkspace() {
   const classUpdate=classRoot?.querySelector('[data-action=check-script-update]');
   if(classUpdate&&classRoot.querySelector('.class-admin')){const feedback=classUpdate.nextElementSibling;classRoot.querySelector('.class-admin').append(classUpdate);if(feedback)classRoot.querySelector('.class-admin').append(feedback);}
   settings.append(summary,settingsPanel);actions.append(settings);
-  document.addEventListener('click',event=>{if(!settings.contains(event.target))settings.open=false;});
+  document.addEventListener('click',event=>{if(!event.composedPath().includes(settings))settings.open=false;});
   settings.addEventListener('keydown',event=>{if(event.key==='Escape'){settings.open=false;summary.focus();}});
   const tools=make('section','am-tools'),slots=make('div','am-tool-slots');tools.setAttribute('aria-label','比赛工具');tools.append(make('h2','','比赛工具'),slots);
   const contestLink=make('a','','赛事列表');contestLink.href=accodingPath('/contest/index');contestLink.prepend(workspaceIcon('contest'));slots.append(contestLink);
@@ -50,7 +51,7 @@ function mountWorkspace() {
   }
   if(activation){activation.dataset.docked='true';slots.append(activation);}
   if(classHost){classHost.dataset.docked='true';}
-  const updates=document.getElementById('am-update-notice');if(updates){updates.dataset.docked='true';header.after(updates);}
+  const updates=document.getElementById('am-update-notice');if(updates){updates.dataset.docked='true';if(submissionRoot)submissionRoot.querySelector('.submission-content').prepend(updates);else header.after(updates);}
   // Docking styles live in each ShadowRoot, so the original interface keeps its tools.
   for(const host of [board,activation,classHost,updates]){
     if(!host?.shadowRoot)continue;
@@ -71,14 +72,14 @@ function mountWorkspace() {
   }
   const place=()=>{
     if(reset&&reset.parentElement!==settingsPanel)settingsPanel.append(reset);
-    const nav=document.querySelector('#navbar');
+    const nav=document.querySelector('#navbar')||submissionRoot?.querySelector('.submission-rail');
     const context=document.querySelector('[ng-view]>.col-lg-2');
-    if(nav&&!nav.contains(tools))nav.querySelector('.navbar-middle')?.after(tools);
+    if(nav&&!nav.contains(tools)){const links=nav.querySelector('.navbar-middle');if(links)links.after(tools);else nav.append(tools);}
     if(context&&!context.contains(tools))context.append(tools);
     const ngNav=document.querySelector('[ng-view]>nav');
     if(ngNav&&!context&&!ngNav.contains(tools))ngNav.append(tools);
     if(ngNav&&!ngNav.contains(header))ngNav.append(header);
-    if(updates&&header.nextElementSibling!==updates)header.after(updates);
+    if(updates&&submissionRoot){const content=submissionRoot.querySelector('.submission-content');if(content.firstElementChild!==updates)content.prepend(updates);}else if(updates&&header.nextElementSibling!==updates)header.after(updates);
   };
   let queued=false;new MutationObserver(()=>{if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;place();});}).observe(document.body,{childList:true,subtree:true});place();
   // Use the native nodes, including their links and all Bootstrap/Angular events.
@@ -113,10 +114,10 @@ function layoutClassWorkspace(root) {
     .class-admin{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}.class-admin summary{padding:10px 12px;color:var(--muted);cursor:pointer}.class-admin .toolbar,.class-admin .row{display:flex;flex-direction:column;align-items:stretch;gap:8px}.class-admin .toolbar{margin-top:12px}.class-admin .row{width:100%}.class-admin [data-action=check-script-update]{width:100%;margin-top:8px}.class-contest-picker label{white-space:nowrap}.top button{white-space:nowrap}
     .panel{padding:24px;margin:20px 0;border-color:var(--line);border-radius:10px;box-shadow:none}.cards{gap:16px;margin:0 0 20px}.metric{padding:20px;border-color:var(--line);border-radius:10px}.metric strong{margin-top:8px;color:var(--ink);font:600 32px/1.3 ui-monospace,SFMono-Regular,monospace}.muted{color:var(--muted)}.metric .muted{font-size:13px}.problem{border-radius:8px;border-color:var(--line)}.problem small{color:var(--muted)}.chart{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.toolbar{gap:16px;margin-bottom:16px}h2{color:var(--ink);font-size:18px;font-weight:650}h3{color:var(--ink)}
     button{min-height:40px;border-color:#c3ced9;border-radius:7px;color:var(--ink);font-size:14px;transition:background .16s,border-color .16s}button:hover{background:#f0f5ff;border-color:#98b1e5}button.primary{background:var(--blue);border-color:var(--blue);color:#fff}.primary:hover{background:#204bb4}button:disabled{cursor:default;opacity:.5}input,select{min-height:40px;border-color:#b8c4d1;border-radius:7px;color:var(--ink);font-size:14px}input[type=checkbox]{min-height:0}a{color:var(--blue)}th{background:#f8fafb;color:var(--muted);font-size:12px}th,td{border-color:var(--line);padding:13px 12px}.table-wrap{border:1px solid var(--line);border-radius:8px;max-height:640px}.empty{color:var(--muted);padding:48px 24px}.message{background:#edf3ff;color:#284d95;border-radius:7px}.message.error{background:#fff0ed;color:#a33e36}.pager{flex-wrap:wrap}.ac{color:#16765d}.bad{color:#aa3047}.counts span:first-child{color:#275ad6}.bar{background:#edf1f5}.bar i{background:#bacdf6}.bar em{background:var(--blue)}
-    .ar-review-page,.ar-student-page,.problem-review-page{background:var(--bg)}.ar-review-head{border-color:var(--line);border-radius:8px}.ar-profile-technical{color:var(--muted)}.ar-source{background:#f8fafb;border-color:var(--line)}.ar-note{border-color:#b8c4d1}.ar-code-line{font-size:13px}.ar-code-line .num{color:#58697b}.ar-compare{border-radius:8px}.ar-compare-title{background:#f6f8fb}.ar-history{border-color:#c5d5f4}.ar-state{font-size:13px}.ar-actions,.ar-review-nav{gap:8px}.ar-actions select{max-width:100%}
+
     :focus-visible{outline:3px solid var(--blue);outline-offset:3px}summary{cursor:pointer}button,a{touch-action:manipulation}
     @media(max-width:1100px){.shell{grid-template-columns:214px minmax(0,1fr)}.top,.class-content{padding:20px 24px}.top{flex-wrap:wrap}.top [data-action=check-script-update]{display:none}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.header-class{margin-left:0}.header-class select{max-width:260px}}
-    @media(max-width:767px){.shell{display:flex;flex-direction:column}.top{order:0;padding:16px;min-height:0;gap:12px}.top>div:first-child{flex:1}.top h1{font-size:18px}.top .tag{display:none}.header-class{order:3;flex-basis:100%}.header-class select{width:100%;max-width:none}.top>button{padding:8px 10px}.class-rail{order:1;position:static;height:auto;width:100%;padding:16px;border:0;border-bottom:1px solid var(--line)}.class-brand,.rail-label{display:none}.class-contest-picker.panel{margin:0 0 12px}.class-contest-picker .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}.class-contest-picker .row #contest-select,.class-contest-picker .row #contest-id{grid-column:1/-1}.class-contest-picker #contest-title:empty{display:none}.class-rail>[role=tablist]{flex-direction:row;padding:12px 0 0;gap:8px}.class-rail>[role=tablist] button{flex:1;text-align:center;white-space:nowrap;padding:8px}.class-admin{margin-top:12px;padding-top:8px}.class-admin .row{display:flex;flex-direction:row;flex-wrap:wrap}.class-content{order:2;padding:20px 16px}.panel{padding:16px;margin:16px 0}.metric{padding:16px}.metric strong{font-size:28px}.toolbar>.row{width:100%}.toolbar input,.toolbar select{min-width:0;max-width:100%}.table-wrap{max-height:65vh}.chart{grid-template-columns:repeat(2,minmax(0,1fr))}.problem{padding:12px}.counts{flex-wrap:wrap}.ar-review-head{position:relative;top:auto}.ar-profile dl{grid-template-columns:1fr}.ar-profile dd{margin:0}.ar-review-page,.ar-student-page,.problem-review-page{padding:12px}}
+    @media(max-width:767px){.shell{display:flex;flex-direction:column}.top{order:0;padding:16px;min-height:0;gap:12px}.top>div:first-child{flex:1}.top h1{font-size:18px}.top .tag{display:none}.header-class{order:3;flex-basis:100%}.header-class select{width:100%;max-width:none}.top>button{padding:8px 10px}.class-rail{order:1;position:static;height:auto;width:100%;padding:16px;border:0;border-bottom:1px solid var(--line)}.class-brand,.rail-label{display:none}.class-contest-picker.panel{margin:0 0 12px}.class-contest-picker .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}.class-contest-picker .row #contest-select,.class-contest-picker .row #contest-id{grid-column:1/-1}.class-contest-picker #contest-title:empty{display:none}.class-rail>[role=tablist]{flex-direction:row;padding:12px 0 0;gap:8px}.class-rail>[role=tablist] button{flex:1;text-align:center;white-space:nowrap;padding:8px}.class-admin{margin-top:12px;padding-top:8px}.class-admin .row{display:flex;flex-direction:row;flex-wrap:wrap}.class-content{order:2;padding:20px 16px}.panel{padding:16px;margin:16px 0}.metric{padding:16px}.metric strong{font-size:28px}.toolbar>.row{width:100%}.toolbar input,.toolbar select{min-width:0;max-width:100%}.table-wrap{max-height:65vh}.chart{grid-template-columns:repeat(2,minmax(0,1fr))}.problem{padding:12px}.counts{flex-wrap:wrap}.problem-review-page{padding:12px}}
     @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
   `;root.append(style);
 }

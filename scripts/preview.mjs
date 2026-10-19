@@ -13,7 +13,7 @@ createServer(async(req,res)=>{
       res.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-store'});res.end(source);return;
     }
     if(url.pathname==='/accoding-modern.user.js'){file='accoding-modern.user.js';type='text/javascript';}
-    else if(url.pathname==='/preview.js'){file='preview/preview.js';type='text/javascript';}
+    else if(['/preview.js','/review-data.js','/preview-start.js'].includes(url.pathname)){file='preview'+url.pathname;type='text/javascript';}
     else if(url.pathname==='/preview.css'){file='preview/preview.css';type='text/css';}
     else if(url.pathname.startsWith('/tests/')||url.pathname.startsWith('/src/')){
       if(url.pathname.includes('..'))throw Error('Invalid path');

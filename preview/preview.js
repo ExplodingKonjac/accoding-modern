@@ -13,6 +13,7 @@
   const nativeFetch=window.fetch.bind(window);
   window.fetch=async(input,options={})=>{
     const url=new URL(typeof input==='string'?input:input.url||input,location.href);
+    const review=await window.previewReviewService?.(url,options);if(review)return review;
     const json=value=>new Response(JSON.stringify(value),{headers:{'content-type':'application/json'}});
     if(url.origin!==location.origin){if(url.hostname==='raw.githubusercontent.com')return json({version:'1.22.0'});return new Response('{}',{status:503});}
     if(url.pathname.startsWith('/api/contests/')){
@@ -31,6 +32,7 @@
   };
   window.GM_xmlhttpRequest=options=>{setTimeout(()=>options.onload?.({status:503,responseText:'{"error":"本地预览未连接复核服务"}'}),100);return {abort(){}};};
   const notice='<div class="preview-notice">本地预览 · 演示数据<a href="/contest/index">赛事列表</a><a href="/contest-ng/index.html#/1326">比赛页</a><a href="/problem/index">题目列表</a><a href="/problem/100/index">题面</a><a href="/problem/100/edit">编辑</a></div>';
+  if(/^\/submission\/\d+$/.test(location.pathname)){document.body.replaceChildren();const pre=document.createElement('pre'),code=document.createElement('code');code.textContent=window.previewSubmissionText(location.pathname.split('/').pop());pre.append(code);document.body.append(pre);return;}
   const isContest=location.pathname.startsWith('/contest-ng/');
   const nav=`<nav id="navbar" class="navbar navbar-default"><div class="container-fluid"><div class="navbar-header"><a class="navbar-brand" href="/">ONLINE JUDGE ADMIN</a></div><div class="navbar-collapse"><ul class="nav navbar-nav navbar-middle">${[['group','小组'],['problem','题目'],['contest','赛事'],['submission','评测记录']].map(([path,title])=>`<li><a id="${path}page" href="/${path}/index" class="${location.pathname.startsWith('/'+path)?'nav-change':''}">${title}</a></li>`).join('')}<li><a id="informationpage" href="/user/1000/index">个人信息</a></li></ul><ul class="nav navbar-nav navbar-right"><li><a href="/user/1000/index">演示助教</a></li><li><a href="/user/logout">登出</a></li></ul></div></div></nav>`;
   let page='';

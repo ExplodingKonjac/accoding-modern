@@ -1,0 +1,30 @@
+// Run in the local ?review=1 preview. The service stores changes in memory only.
+window.reviewLayoutRun=(async()=>{
+  if(location.hostname!=='127.0.0.1')throw Error('Use the local preview');
+  await window.previewReviewReady;
+  const root=document.querySelector('#am-classes').shadowRoot,checks={};
+  const check=(name,value)=>{if(!value)throw Error(name);checks[name]=true;};
+  const settle=async predicate=>{for(let i=0;i<120;i++){if(predicate())return;await new Promise(resolve=>setTimeout(resolve,25));}throw Error('Review UI did not settle');};
+  const pane=root.querySelector('#review-pane'),find=(label,parent=pane)=>[...parent.querySelectorAll('button')].find(b=>b.textContent===label);
+  pane.querySelector('.ar-branches button:first-child').click();await settle(()=>!pane.querySelector('.ar-table').closest('.table-wrap').hidden);
+  check('filters have visible labels',pane.querySelectorAll(':scope>.ar-toolbar label').length===4);
+  check('state counts present',pane.querySelectorAll('.ar-count-pill').length===5);
+  pane.querySelector('.ar-table tbody button').click();await settle(()=>pane.querySelector('.ar-review-page .ar-note'));
+  const detail=pane.querySelector('.ar-review-page');await settle(()=>detail.querySelector('[data-history-view] .ar-compare .add'));
+  check('source and history readable',detail.querySelectorAll('.ar-compare-title').length>=2);
+  check('manual editor in inspector',!!detail.querySelector('.ar-inspector .ar-feedback-editor .ar-note'));
+  const note=detail.querySelector('.ar-note');note.value='本地回归草稿';
+  find('查看该同学本次比赛提交',detail).click();await settle(()=>detail.querySelector('.ar-student-page tbody'));
+  find('返回当前核查',detail.querySelector('.ar-student-page')).click();check('draft preserved',note.value==='本地回归草稿');
+  detail.querySelector('[aria-label="人工复核结论"]').value='uncertain';await find('保存结论',detail).onclick();
+  check('manual save works',detail.querySelector('[data-review-judgement]').textContent==='已核查为存疑');
+  find('下一份',detail.querySelector('.ar-review-head')).click();await settle(()=>detail.querySelector('h2')?.textContent.endsWith('#6101')&&detail.querySelector('.ar-note'));
+  check('next submission works',detail.querySelector('h2').textContent.endsWith('#6101'));
+  await find('返回列表',detail).onclick();await settle(()=>detail.hidden);
+  pane.querySelector('.ar-branches button:last-child').click();await settle(()=>pane.querySelector('.ar-similarity-record'));
+  const match=pane.querySelector('.ar-similarity-match');match.open=true;await settle(()=>match.querySelector('.ar-similarity-editor textarea'));
+  check('peer comparison readable',match.querySelectorAll('.ar-similarity-snippets>div').length===2);
+  check('peer editor retained',!!match.querySelector('[aria-label="查重核对结论"]'));
+  check('no whole-page overflow',document.documentElement.scrollWidth<=innerWidth);
+  return checks;
+})();
