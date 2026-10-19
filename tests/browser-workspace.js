@@ -64,16 +64,10 @@ window.__workspaceRun=(async()=>{
   location.hash='#/1326/problems';
   const questionSelector='[ng-include="\'detail/detail-question.html\'"]';
   await settle(()=>document.querySelector(`${questionSelector} [ng-click="show_question_area()"]`));
-  const question=document.querySelector(questionSelector),ask=question.querySelector('[ng-click="show_question_area()"]'),form=question.querySelector('[ng-show="is_question"]');
-  const divider=()=>document.querySelector('.am-tools').getBoundingClientRect().top;
-  const minimumGap=11; // Allow subpixel rounding of the narrow layout's 12px gap.
-  check('question section contains its header',question.getBoundingClientRect().bottom>=ask.getBoundingClientRect().bottom);
-  check('question button clears tool divider',divider()-ask.getBoundingClientRect().bottom>=minimumGap);
-  ask.click();
-  check('question form expands',!form.classList.contains('ng-hide'));
-  check('expanded question form stays above divider',question.getBoundingClientRect().bottom>=form.getBoundingClientRect().bottom&&divider()-form.getBoundingClientRect().bottom>=minimumGap);
-  ask.click();
-  check('question form collapses without overlap',form.classList.contains('ng-hide')&&divider()-ask.getBoundingClientRect().bottom>=minimumGap);
+  const question=document.querySelector(questionSelector);
+  check('participant question UI is absent',question.getClientRects().length===0&&[...question.querySelectorAll('button,input,textarea')].every(control=>control.getClientRects().length===0));
+  const toolGap=document.querySelector('.am-tools').getBoundingClientRect().top-document.querySelector('[ng-include="\'detail/time.html\'"]').getBoundingClientRect().bottom;
+  check('removed question UI leaves no gap',toolGap>=11&&toolGap<=25);
   location.hash=oldHash;
   return checks;
 })();
