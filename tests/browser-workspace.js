@@ -61,6 +61,19 @@ window.__workspaceRun=(async()=>{
   const tool=document.querySelector('.am-board-control'),activation=document.querySelector('#am-upsolve-activation').shadowRoot.querySelector('.launch button');
   check('tool button dimensions match',Math.abs(tool.getBoundingClientRect().width-activation.getBoundingClientRect().width)<1&&Math.abs(tool.getBoundingClientRect().height-activation.getBoundingClientRect().height)<1);
   check('page does not overflow',document.documentElement.scrollWidth<=innerWidth);
+  location.hash='#/1326/problems';
+  const questionSelector='[ng-include="\'detail/detail-question.html\'"]';
+  await settle(()=>document.querySelector(`${questionSelector} [ng-click="show_question_area()"]`));
+  const question=document.querySelector(questionSelector),ask=question.querySelector('[ng-click="show_question_area()"]'),form=question.querySelector('[ng-show="is_question"]');
+  const divider=()=>document.querySelector('.am-tools').getBoundingClientRect().top;
+  const minimumGap=11; // Allow subpixel rounding of the narrow layout's 12px gap.
+  check('question section contains its header',question.getBoundingClientRect().bottom>=ask.getBoundingClientRect().bottom);
+  check('question button clears tool divider',divider()-ask.getBoundingClientRect().bottom>=minimumGap);
+  ask.click();
+  check('question form expands',!form.classList.contains('ng-hide'));
+  check('expanded question form stays above divider',question.getBoundingClientRect().bottom>=form.getBoundingClientRect().bottom&&divider()-form.getBoundingClientRect().bottom>=minimumGap);
+  ask.click();
+  check('question form collapses without overlap',form.classList.contains('ng-hide')&&divider()-ask.getBoundingClientRect().bottom>=minimumGap);
   location.hash=oldHash;
   return checks;
 })();
