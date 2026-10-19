@@ -30,26 +30,29 @@ function mountWorkspace() {
   if(classRoot){new MutationObserver(syncClass).observe(classRoot.querySelector('#class-select'),{childList:true,subtree:true,characterData:true});classHost.addEventListener('am-class-change',syncClass);}
   const settings=make('details','am-settings'),summary=make('summary','','设置');summary.prepend(workspaceIcon('settings'));
   const settingsPanel=make('div','am-settings-panel');settingsPanel.append(make('span','am-settings-version','OJ Modern · '+ACCODING_MODERN_VERSION));
-  const reset=actions.querySelector('button.am-button:not(.am-class-header button)')||document.querySelector('.am-ng-reset');
-  if(reset)settingsPanel.append(reset);
+  let reset=actions.querySelector('button.am-button:not(.am-class-header button)')||document.querySelector('.am-ng-reset');
   const update=make('button','am-button','检查更新');update.type='button';update.onclick=()=>classRoot?.querySelector('[data-action=check-script-update]')?.click();settingsPanel.append(update);
   const classUpdate=classRoot?.querySelector('[data-action=check-script-update]');
   if(classUpdate&&classRoot.querySelector('.class-admin')){const feedback=classUpdate.nextElementSibling;classRoot.querySelector('.class-admin').append(classUpdate);if(feedback)classRoot.querySelector('.class-admin').append(feedback);}
   settings.append(summary,settingsPanel);actions.append(settings);
-  document.addEventListener('click',event=>{if(!event.composedPath().includes(settings))settings.open=false;});
-  settings.addEventListener('keydown',event=>{if(event.key==='Escape'){settings.open=false;summary.focus();}});
+  const account=make('details','am-account'),accountSummary=make('summary',''),accountName=make('span','am-account-name','账号'),accountPanel=make('div','am-account-panel');
+  accountSummary.append(workspaceIcon('user'),accountName);account.append(accountSummary,accountPanel);
+  for(const menu of [settings,account]){
+    document.addEventListener('click',event=>{if(!event.composedPath().includes(menu))menu.open=false;});
+    menu.addEventListener('keydown',event=>{if(event.key==='Escape'){menu.open=false;menu.querySelector('summary').focus();}});
+    menu.addEventListener('toggle',()=>{if(menu.open)for(const other of [settings,account])if(other!==menu)other.open=false;});
+  }
   const tools=make('section','am-tools'),slots=make('div','am-tool-slots');tools.setAttribute('aria-label','比赛工具');tools.append(make('h2','','比赛工具'),slots);
-  const contestLink=make('a','','赛事列表');contestLink.href=accodingPath('/contest/index');contestLink.prepend(workspaceIcon('contest'));slots.append(contestLink);
   const board=document.getElementById('am-contest-tools'),activation=document.getElementById('am-upsolve-activation');
   if(board){
     // Keep the fullscreen host at body level so a sticky sidebar cannot clip it
     // or put document content above its overlay.
     board.dataset.docked='true';
     const launch=board.shadowRoot.querySelector('.launch');
-    const control=make('button','am-button am-board-control','赛事统计看板');control.type='button';control.onclick=()=>launch.click();
+    const control=make('button','am-button am-board-control','赛事统计看板');control.prepend(workspaceIcon('grid'));control.type='button';control.onclick=()=>launch.click();
     const sync=()=>{control.hidden=launch.hidden;};sync();new MutationObserver(sync).observe(launch,{attributes:true,attributeFilter:['hidden']});slots.append(control);
   }
-  if(activation){activation.dataset.docked='true';slots.append(activation);}
+  if(activation){activation.dataset.docked='true';activation.shadowRoot.querySelector('.launch button').prepend(workspaceIcon('problem'));slots.append(activation);}
   if(classHost){classHost.dataset.docked='true';}
   const updates=document.getElementById('am-update-notice');if(updates){updates.dataset.docked='true';if(submissionRoot)submissionRoot.querySelector('.submission-content').prepend(updates);else header.after(updates);}
   // Docking styles live in each ShadowRoot, so the original interface keeps its tools.
@@ -58,10 +61,11 @@ function mountWorkspace() {
     const style=make('style','');style.textContent=`
       :host([data-docked]){display:block;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:#182536}
       :host([data-docked])>.launch{position:static;inset:auto;width:100%;max-width:none;min-height:44px;margin:0;padding:10px 12px;border:1px solid #dfe5eb;border-radius:7px;background:#f8fafc;color:#234ba4;box-shadow:none;font-size:14px;font-weight:500;text-align:left}
-      :host([data-docked]) div.launch{display:flex;flex-direction:column;align-items:stretch;gap:8px;background:#fff}
-      :host([data-docked]) .launch button{width:100%;padding:8px;min-height:44px;font-size:13px;background:#edf3ff;border-color:#d2def6;color:#234ba4}
-      :host([data-docked]) .launch button:disabled{background:#f3f5f8;color:#59697b;border-color:#dfe5eb}
-      :host([data-docked]) .launch .hint{max-width:none;color:#59697b;font-size:12px}
+      :host([data-docked]) div.launch{display:flex;flex-direction:column;align-items:stretch;gap:8px;padding:0;border:0;border-radius:0;background:transparent;min-height:0}
+      :host([data-docked]) .launch button{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;min-height:44px;border:1px solid #dfe5eb;border-radius:7px;background:#f8fafc;color:#234ba4;font:500 14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;text-align:left;transition:background .16s,border-color .16s}
+      :host([data-docked]) .launch button:hover:not(:disabled){background:#edf3ff;border-color:#9cb4e9}
+      :host([data-docked]) .launch button:disabled{background:#f8fafc;color:#718096;border-color:#dfe5eb}
+      :host([data-docked]) .launch .am-nav-icon{width:19px;height:19px;flex:none}
       :host([data-docked]) section[aria-label="脚本更新"]{position:static;max-width:none;margin:0 0 20px;padding:16px;border-radius:8px;box-shadow:none;background:#edf3ff}
       button,a,summary{touch-action:manipulation}:focus-visible{outline:3px solid #275ad6;outline-offset:3px}
       @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
@@ -71,17 +75,29 @@ function mountWorkspace() {
     host.shadowRoot.append(style);
   }
   const place=()=>{
-    if(reset&&reset.parentElement!==settingsPanel)settingsPanel.append(reset);
+    // ng-include can create the reset control after the workspace has mounted.
+    reset ||= document.querySelector('.am-ng-reset');
+    if(reset&&reset.parentElement!==settingsPanel){const slot=reset.closest('.am-ng-reset-item');settingsPanel.insertBefore(reset,update);slot?.remove();}
     const nav=document.querySelector('#navbar')||submissionRoot?.querySelector('.submission-rail');
     const context=document.querySelector('[ng-view]>.col-lg-2');
     if(nav&&!nav.contains(tools)){const links=nav.querySelector('.navbar-middle');if(links)links.after(tools);else nav.append(tools);}
     if(context&&!context.contains(tools))context.append(tools);
     const ngNav=document.querySelector('[ng-view]>nav');
+    if(ngNav){
+      // Move the native account lists (including ng-show/ng-hide and their links),
+      // and replace stale lists when Angular renders a new route or nav include.
+      const lists=[...ngNav.querySelectorAll('.navbar-right')].filter(list=>!account.contains(list));
+      if(lists.length)accountPanel.replaceChildren(...lists);
+      if(account.parentElement!==actions)actions.append(account);
+      const visible=[...accountPanel.children].find(list=>!list.hidden&&!list.classList.contains('ng-hide'));
+      const label=visible?.querySelector('a')?.textContent.trim()||'账号';
+      if(accountName.textContent!==label)accountName.textContent=label;
+    }
     if(ngNav&&!context&&!ngNav.contains(tools))ngNav.append(tools);
     if(ngNav&&!ngNav.contains(header))ngNav.append(header);
     if(updates&&submissionRoot){const content=submissionRoot.querySelector('.submission-content');if(content.firstElementChild!==updates)content.prepend(updates);}else if(updates&&header.nextElementSibling!==updates)header.after(updates);
   };
-  let queued=false;new MutationObserver(()=>{if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;place();});}).observe(document.body,{childList:true,subtree:true});place();
+  let queued=false;new MutationObserver(()=>{if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;place();});}).observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['class']});place();
   // Use the native nodes, including their links and all Bootstrap/Angular events.
   for(const [id,name]of [['grouppage','group'],['problempage','problem'],['contestpage','contest'],['submissionpage','submission'],['informationpage','user']])document.getElementById(id)?.prepend(workspaceIcon(name));
   for(const search of document.querySelectorAll('.am-search>span'))search.replaceChildren(workspaceIcon('search'));

@@ -46,13 +46,14 @@ function mountUpsolveActivation(Core) {
   const root=host.attachShadow({mode:'open'});
   root.innerHTML=`<style>
   :host{font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:#25344b}*{box-sizing:border-box}[hidden]{display:none!important}
-  .launch{position:fixed;right:24px;bottom:156px;z-index:1040;max-width:calc(100vw - 32px);display:flex;align-items:center;gap:10px;padding:10px 12px;background:white;border:1px solid #dfe7f0;border-radius:10px;box-shadow:0 6px 22px #18345318}.hint{font-size:12px;color:#596a80;max-width:210px}
+  .launch{position:fixed;right:24px;bottom:156px;z-index:1040;max-width:calc(100vw - 32px);display:flex;align-items:center;gap:10px;padding:10px 12px;background:white;border:1px solid #dfe7f0;border-radius:10px;box-shadow:0 6px 22px #18345318}.hint{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
   button{font:inherit;cursor:pointer;border:1px solid #2458d3;border-radius:7px;background:#2458d3;color:white;padding:9px 14px;min-height:44px}button:disabled{cursor:default;background:#edf1f7;color:#56667b;border-color:#d6dfeb}button:focus-visible{outline:2px solid #2458d3;outline-offset:3px}
   dialog{color:inherit;border:1px solid #dfe7f0;border-radius:14px;padding:24px;width:560px;max-width:calc(100vw - 32px);max-height:80vh;overflow:auto}dialog::backdrop{background:#17253a66}h2{margin:0 0 12px;font-size:20px}p{margin:8px 0}ul{padding-left:22px;overflow-wrap:anywhere}.close{margin-top:16px;background:white;color:#334862;border-color:#ccd7e6}
-  @media(max-width:700px){.launch{right:16px;bottom:156px;flex-direction:column;gap:4px;align-items:stretch}.hint{max-width:180px}}
-  </style><div class="launch"><button type="button" disabled aria-describedby="hint">一键开启补题</button><span class="hint" id="hint" role="status" aria-live="polite">正在核验比赛状态…</span></div><dialog aria-labelledby="result-title"><h2 id="result-title">开启补题结果</h2><div class="result"></div><button type="button" class="close">关闭</button></dialog>`;
+  @media(max-width:700px){.launch{right:16px;bottom:156px;flex-direction:column;gap:4px;align-items:stretch}}
+  </style><div class="launch"><button type="button" disabled title="正在核验比赛状态…" aria-describedby="hint">一键开启补题</button><span class="hint" id="hint" role="status" aria-live="polite">正在核验比赛状态…</span></div><dialog aria-labelledby="result-title"><h2 id="result-title">开启补题结果</h2><div class="result"></div><button type="button" class="close">关闭</button></dialog>`;
   document.body.append(host);
   const action=root.querySelector('.launch button'),hint=root.querySelector('.hint'),dialog=root.querySelector('dialog'),result=root.querySelector('.result');
+  const setHint=text=>{action.title=text;hint.textContent=text;};
   const service=createUpsolveActivation(Core,createUpsolveActivationIO());
   let generation=0,busy=false,statusTimer=null;
   root.querySelector('.close').addEventListener('click',()=>dialog.close());
@@ -61,20 +62,20 @@ function mountUpsolveActivation(Core) {
     clearTimeout(statusTimer);
     const own=++generation,current=id();host.hidden=!current;action.disabled=true;
     if(!current)return;
-    hint.textContent='正在核验比赛状态…';
+    setHint('正在核验比赛状态…');
     try{
       const state=await service.check(current);if(own!==generation||current!==id())return;
       action.disabled=state.phase!=='finished';
-      hint.textContent=state.phase==='finished'?'将本场个人私有题目设为组内可见':state.phase==='upcoming'?'比赛未开始，不能开启补题':'比赛进行中，结束后可开启补题';
+      setHint(state.phase==='finished'?'将本场个人私有题目设为组内可见':state.phase==='upcoming'?'比赛未开始，不能开启补题':'比赛进行中，结束后可开启补题');
       if(state.phase!=='finished')statusTimer=setTimeout(update,Math.min(2147483647,Math.max(250,(state.phase==='upcoming'?state.contest.start:state.contest.end)-state.now+250)));
-    }catch(error){if(own===generation)hint.textContent=error.message;}
+    }catch(error){if(own===generation)setHint(error.message);}
   }
   action.addEventListener('click',async()=>{
     if(busy)return;
     busy=true;generation++;action.disabled=true;action.setAttribute('aria-busy','true');
     const current=id();let outcome='';
     try{
-      const report=await service.run(current,{isCurrent:()=>current===id(),onProgress:text=>{hint.textContent=text;}});
+      const report=await service.run(current,{isCurrent:()=>current===id(),onProgress:setHint});
       result.replaceChildren();
       const summary=document.createElement('p');summary.textContent=`成功 ${report.success.length} 题，跳过 ${report.skipped.length} 题，失败或待核验 ${report.failed.length} 题。`;result.append(summary);
       for(const [key,label]of [['success','成功'],['skipped','跳过'],['failed','失败或待核验']]){
@@ -85,7 +86,7 @@ function mountUpsolveActivation(Core) {
       if(current===id())dialog.showModal();
       outcome=`已处理：成功 ${report.success.length} 题，跳过 ${report.skipped.length} 题，失败或待核验 ${report.failed.length} 题`;
     }catch(error){outcome=error.message;}
-    finally{busy=false;action.removeAttribute('aria-busy');await update();if(current===id()&&outcome)hint.textContent=outcome;}
+    finally{busy=false;action.removeAttribute('aria-busy');await update();if(current===id()&&outcome)setHint(outcome);}
   });
   window.addEventListener('hashchange',()=>{if(!busy)update();});
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)update();});

@@ -1,5 +1,7 @@
 # Accoding Modern
 
+> 1.22.3 修复比赛页异步加载后“恢复原版外观”错位：统一收进设置菜单；个人资料置于最右侧并收纳登出；删除侧栏重复的赛事列表，统一比赛工具按钮样式，补题说明改为按钮悬停提示。
+
 > 1.22.2 修复题目“基本设置”中支持语言名称与勾选框错行，适配窄屏，保留原有语言选择和保存逻辑。
 
 > 1.22.1 补齐代码复核列表、复核详情、代码查重与独立提交页的统一布局。
@@ -218,7 +220,7 @@ npm run preview
 
 本地预览：<http://127.0.0.1:18764/contest/index>；比赛页：<http://127.0.0.1:18764/contest-ng/index.html#/1326>。使用实际构建产物和隔离的演示名册、榜单及提交数据，不修改线上数据。代码复核使用模拟记录，支持列表、源码对照、查重和仅保存在当前页面的人工结论；真实复核与权限保存沿用业务模块。预览支持班级、补题榜、看板、题面及 Markdown / 测试点编辑。复核列表预览：<http://127.0.0.1:18764/contest-ng/index.html?review=1#/1326>；详情：<http://127.0.0.1:18764/contest-ng/index.html?review=detail#/1326>；独立提交页：<http://127.0.0.1:18764/submission/6100>。发布须在用户确认预览后执行。
 
-UI 浏览器回归脚本：在本地比赛预览中执行 `tests/browser-workspace.js`，读取 `window.__workspaceRun`；XLS/XLSX 回归页为 `/tests/browser-class-import.html`。
+UI 浏览器回归入口：<http://127.0.0.1:18764/tests/browser-workspace.html>，支持桌面、平板与窄屏预览，验证延迟导航加载、菜单、工具入口与路由切换。也可在本地比赛预览中执行 `tests/browser-workspace.js`，读取 `window.__workspaceRun`；XLS/XLSX 回归页为 `/tests/browser-class-import.html`。
 
 ```bash
 npm run check

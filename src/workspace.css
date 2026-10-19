@@ -71,18 +71,33 @@ html.am,html.am-ng{--am-bg:#f6f8fa;--am-card:#fff;--am-line:#dfe5eb;--am-ink:#18
 @media print{.am #navbar,.am-topbar,.am-toolbar,.am-ng nav,.am-ng [ng-view]>.col-lg-2{display:none!important}.am #container{margin:0;padding:0}.am-ng [ng-view]{display:block}.am-table-wrap,.am-ng-table-wrap{overflow:visible}.am #page .am-list-table{min-width:0}}
 /* Header composition also works before Bootstrap's responsive collapse settles. */
 .am #navbar .navbar-brand,.am-ng .navbar-brand{text-decoration:none}
-.am-ng [ng-view]>nav{display:flex;align-items:center;flex-wrap:wrap;gap:8px 24px}
-.am-ng [ng-view]>nav>.container-fluid{display:flex;align-items:center;flex:1;gap:16px;min-width:0}
+.am-ng [ng-view]>nav{display:flex;align-items:center;flex-wrap:wrap;gap:8px 20px}
+.am-ng [ng-view]>nav>.container-fluid{display:contents}
+.am-ng [ng-view]>nav::before,.am-ng [ng-view]>nav::after,.am-ng [ng-view]>nav>.container-fluid::before,.am-ng [ng-view]>nav>.container-fluid::after,.am-ng .navbar-collapse::before,.am-ng .navbar-collapse::after,.am-ng .navbar-nav::before,.am-ng .navbar-nav::after{display:none}
 .am-ng .navbar-header{float:none;flex:none}
 .am-ng .navbar-collapse{display:flex!important;align-items:center;flex:1;min-width:0;height:auto!important;padding:0;border:0;box-shadow:none}
 .am-ng .navbar-nav{list-style:none;display:flex;flex-wrap:wrap;float:none!important;margin:0}
 .am-ng .navbar-nav>li{float:none}
 .am-ng .navbar-right{margin-left:auto!important}
-.am-ng .am-topbar{flex:0 1 auto}
+.am-ng .am-topbar{flex:0 1 auto;margin-left:auto}
 .am-ng .am-top-actions{padding-top:0}
-@media(max-width:1100px){.am-ng [ng-view]>nav>.container-fluid{flex-basis:100%}.am-ng .am-topbar{margin-left:auto}.am-ng .am-top-actions{padding-top:4px}}
-@media(max-width:767px){.am-top-actions{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start}.am-class-header{align-items:stretch;flex-direction:column;gap:8px}.am-class-header select{width:100%;max-width:100%}.am-ng [ng-view]>nav>.container-fluid{align-items:flex-start;flex-wrap:wrap;gap:8px}.am-ng .navbar-header{flex-basis:100%}.am-ng .navbar-collapse{flex-basis:100%;flex-wrap:wrap}.am-ng .navbar-brand{padding:0 0 8px}.am-ng .navbar-brand:after{font-size:22px}.am-ng .navbar-right{margin-left:0!important}.am-ng .am-topbar{width:100%;margin:0}.am-ng .am-top-actions{padding-top:8px}.am-ng .am-top-actions{grid-template-columns:minmax(0,1fr) auto}}
-.am-tool-slots>.am-board-control{width:100%;text-align:left;min-height:44px;background:#f8fafc;color:#234ba4}
+.am-settings>summary,.am-account>summary{border-radius:7px;white-space:nowrap}
+.am-settings>summary:hover,.am-account>summary:hover{background:var(--am-bg);color:var(--am-ink)}
+.am-settings>summary:focus-visible,.am-account>summary:focus-visible{outline:3px solid var(--am-blue);outline-offset:3px}
+.am-account{position:relative;min-width:0;color:var(--am-ink)}
+.am-account>summary{display:flex;align-items:center;gap:8px;min-height:40px;padding:8px 12px;list-style:none;cursor:pointer}
+.am-account>summary::-webkit-details-marker{display:none}
+.am-account>summary::after{content:'';width:6px;height:6px;margin-left:4px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg)}
+.am-account-name{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.am-account[open]>.am-account-panel{position:absolute;top:100%;right:0;z-index:1040;min-width:180px;max-width:calc(100vw - 32px);padding:8px;background:#fff;border:1px solid var(--am-line);border-radius:10px;box-shadow:0 12px 32px #18253618}
+.am-ng .am-account-panel .navbar-right{display:flex;flex-direction:column;margin:0!important;padding:0;width:100%}
+.am-ng .am-account-panel .navbar-right.ng-hide{display:none!important}
+.am-ng .am-account-panel .navbar-right>li>a{display:block;min-height:40px;padding:8px 12px;overflow-wrap:anywhere}
+.am-ng .am-account-panel .navbar-right>li>a:hover{background:var(--am-soft);color:var(--am-blue)}
+.am-tool-slots>.am-board-control{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;text-align:left;min-height:44px;background:#f8fafc;color:#234ba4;font:500 14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+.am-tool-slots>.am-board-control:hover{background:var(--am-soft);border-color:#9cb4e9}
+@media(max-width:1100px){.am-ng .am-topbar{flex-basis:100%;margin-left:auto}.am-ng .am-top-actions{width:100%;padding-top:4px}}
+@media(max-width:767px){.am-top-actions{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start}.am-class-header{align-items:stretch;flex-direction:column;gap:8px}.am-class-header select{width:100%;max-width:100%}.am-ng .navbar-header{flex-basis:100%}.am-ng .navbar-collapse{flex-basis:100%;flex-wrap:wrap}.am-ng .navbar-brand{padding:0 0 8px}.am-ng .navbar-brand:after{font-size:22px}.am-ng .am-topbar{width:100%;margin:0}.am-ng .am-top-actions{grid-template-columns:minmax(0,1fr) auto;align-items:center;padding-top:8px;gap:8px}.am-ng .am-class-header{grid-column:1/-1;flex-direction:row}.am-ng .am-class-header select{flex:1;min-width:0;width:0}.am-ng .am-account{justify-self:end}.am-ng .am-settings{justify-self:start}.am-ng .am-settings[open]>.am-settings-panel{left:0;right:auto}.am-ng .am-account-name{max-width:140px}}
 :is(.am,.am-ng) :is(#am-markdown-tools,#am-batch-upload,#am-testdata-guard){padding:20px;border-color:var(--am-line);border-radius:8px;background:#fff;color:var(--am-ink);font-size:14px}
 :is(.am,.am-ng) :is(#am-markdown-tools,#am-batch-upload,#am-testdata-guard) button{min-height:40px;padding:8px 12px;border-radius:7px;color:var(--am-blue);font-size:13px}
 :is(.am,.am-ng) #am-markdown-tools p{color:var(--am-muted);font-size:13px}
