@@ -75,7 +75,7 @@ export function createUpsolveActivation(Core, io) {
     catch(error){for(const p of selected)result.failed.push({...p,reason:'保存后无法核验，请刷新查看权限后重试。'+error.message});return result;}
     for(const p of selected){
       if(verified.get(p.id)==='protect')result.success.push(p);
-      else result.failed.push({...p,reason:writeError?.message||'保存后权限未变为组内可见，请检查管理权限。'});
+      else result.failed.push({...p,reason:writeError?.message||'服务器未保存权限，题目仍未设为组内可见。'});
     }
     return result;
   }

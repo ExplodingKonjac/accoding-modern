@@ -28,11 +28,10 @@ function createUpsolveActivationIO() {
     readGroupProblems:async group=>managementRows(await read(`/group/${group}/manage/problem`),'problem_id'),
     readGroupContests:async group=>managementRows(await read(`/group/${group}/manage/contest`),'contest_id').map(p=>p.id),
     savePermissions:async(group,problems)=>{
-      const body=new URLSearchParams();
-      // Explicit arrays preserve the legacy form's parallel-array contract even
-      // when only one problem is selected. No other group rows are submitted.
-      for(const p of problems){body.append('problem_id[]',p.id);body.append('access_level[]',p.access);}
-      const doc=await read(`/group/${group}/manage/problem`,false,{method:'POST',body});
+      // The OJ expects these exact field names and parallel arrays. JSON keeps
+      // a single selected problem as an array without changing the field names.
+      const body=JSON.stringify({problem_id:problems.map(p=>p.id),access_level:problems.map(p=>p.access)});
+      const doc=await read(`/group/${group}/manage/problem`,false,{method:'POST',headers:{'Content-Type':'application/json'},body});
       const error=doc.querySelector('.alert-danger');
       if(error?.textContent.trim())throw new Error(error.textContent.trim());
     }
