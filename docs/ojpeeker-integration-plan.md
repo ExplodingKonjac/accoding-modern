@@ -333,7 +333,7 @@ OJ_AGENT_ROOT=/Users/muzermat/Desktop/buaa/tmp/ojpeeker-integration-20261020/pre
 
 用户已验收通过。程序设计基础课程已导入 13 个教师班、1,440 人；航空航天课程保留 15 个教师班、1,362 人。界面按“王君臣班-141人”格式显示，后台保持稳定班级 ID 和不含人数的班名。
 
-- 插件版本：1.23.4。
+- 插件版本：1.23.5。
 - 云端版本：`/opt/oj-review/releases-v4/20261020-teaching-r20`，增加云端教学视图预计算与响应压缩；教学 API 仍由既有 v4 public/control 服务提供，数据库保持原样。
 - AI 核查和代码查重的读取请求支持最多 2,000 名学生，覆盖“全部班级”；保留按成员筛选及结果分页。云端尚无查重数据时仍提示待同步，不自动发起计算。
 - 云端后台：`https://muzermat.online:8443/oj-review-api/v4/teaching/`。
