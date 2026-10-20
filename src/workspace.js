@@ -17,7 +17,7 @@ function mountWorkspace() {
   const classHost=document.getElementById('am-classes'),classRoot=classHost?.shadowRoot;
   const classes=make('div','am-class-header');
   const selector=make('select','');selector.setAttribute('aria-label','当前班级');
-  const manage=make('button','am-button','班级管理');manage.type='button';
+  const manage=make('button','am-button','教学工作台');manage.type='button';
   manage.onclick=()=>classRoot?.querySelector('.launch').click();
   const syncClass=()=>{
     const original=classRoot?.querySelector('#class-select');if(!original)return;

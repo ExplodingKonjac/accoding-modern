@@ -1,423 +1,203 @@
-function mountClassManager(core, contestCore, upsolveCore, upsolveReader, reviewCore) {
-  if (document.getElementById('am-classes')) return;
-  const host = document.createElement('div'); host.id = 'am-classes'; document.body.append(host);
-  const root = host.attachShadow({mode: 'open'});
-  root.innerHTML = `<style>
-    :host{all:initial;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:#25344b}
-    .problem-review-page{position:fixed;inset:0;z-index:2147483001;overflow:auto;background:#eef3f9;padding:20px max(20px,calc((100vw - 1600px)/2));box-sizing:border-box}.problem-review-page>.toolbar{background:#fff;border:1px solid #dfe7f0;border-radius:12px;padding:12px 18px;position:sticky;top:0;z-index:2}.problem-review-page>.panel{margin:14px 0}.overlay:has(.ar-review-page:not([hidden])),.problem-review-page:has(.ar-review-page:not([hidden])){overflow:hidden}@media(max-width:700px){.problem-review-page{padding:8px}}
-    .toolbar>.row{gap:8px}.toolbar>h2,.toolbar>div:first-child h2{margin-bottom:0}.toolbar{row-gap:16px}.toolbar input,.toolbar select,.toolbar button{min-height:40px}.toolbar>.row select{min-width:150px}.student-head{flex-wrap:wrap}.student-head>.row{justify-content:flex-end;gap:8px}[aria-label="班级比赛页面"]{display:inline-flex;background:#e3eaf4;padding:5px;border-radius:12px;gap:4px}[aria-label="班级比赛页面"] button{border:0;background:transparent;min-width:115px}[aria-label="班级比赛页面"] button.primary{background:#fff;color:#235de4;box-shadow:0 2px 5px #17385912}textarea{font:inherit}@media(max-width:800px){.toolbar>.row{width:100%}.toolbar>.row>input,.toolbar>.row>select{flex:1;min-width:120px}.student-head>.row{justify-content:flex-start}[aria-label="班级比赛页面"]{display:flex}[aria-label="班级比赛页面"] button{flex:1;min-width:0}}
-    *{box-sizing:border-box}button,input,select{font:inherit}button,a,input,select{outline-offset:3px}button{cursor:pointer;border:1px solid #d9e2ee;border-radius:9px;background:white;color:#334862;padding:8px 14px}button:hover{background:#edf4ff}button:disabled{opacity:.5;cursor:wait}button.primary{background:#235de4;color:white;border-color:#235de4}button.danger{color:#a43141}.launch{position:fixed;bottom:100px;right:26px;z-index:9998;box-shadow:0 8px 24px #18345322;background:#fff;color:#2458ca;font-weight:700}
-    [hidden]{display:none!important}.overlay{position:fixed;inset:0;z-index:2147483000;background:#eef3f9;overflow:auto}.shell{max-width:1500px;margin:auto;padding:24px 32px 60px}.top,.toolbar,.row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.top{justify-content:space-between;margin-bottom:22px}.eyebrow{font-size:12px;color:#4270bc;font-weight:700;letter-spacing:2px}h1{font-size:29px;line-height:1.3;margin:4px 0}h2{font-size:20px;margin:0 0 12px}h3{margin:0 0 10px;font-size:17px}p{margin:6px 0 14px}.muted{color:#6c7b91;font-size:13px}.tag{background:#e3ebfb;color:#385ca0;padding:4px 10px;border-radius:20px;font-size:12px}input,select{border:1px solid #ccd9e9;border-radius:8px;background:#fff;color:#25344b;padding:9px 11px;max-width:100%}input[type=file]{width:100%}label{display:flex;align-items:center;gap:8px}.panel{border:1px solid #dfe7f0;border-radius:16px;background:white;padding:22px;margin:18px 0;box-shadow:0 4px 16px #20335404}.toolbar{justify-content:space-between}.message{min-height:42px;padding:9px 12px;font-size:14px;color:#496680;background:#e8f0ff;border-radius:8px;margin-top:14px}.message.error{background:#fff0ed;color:#a33e36}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0}.metric{background:#fff;border:1px solid #dfe7f0;border-radius:14px;padding:18px}.metric strong{display:block;font-size:32px;line-height:1.3;color:#234f99}.chart{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(175px,1fr))}.problem{padding:16px;border:1px solid #e1e8f1;border-radius:12px}.problem b{font-size:25px}.problem small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#76869c}.bar{height:10px;border-radius:8px;background:#edf1f7;position:relative;margin:9px 0 5px}.bar i{position:absolute;left:0;top:0;bottom:0;border-radius:8px;background:#adc4f4}.bar em{position:absolute;left:0;top:0;bottom:0;border-radius:8px;background:#2b68e8}.counts{display:flex;justify-content:space-between;font-size:13px}.counts span:first-child{color:#235de4;font-weight:700}.table-wrap{overflow:auto;max-height:560px}table{width:100%;border-collapse:collapse;font-size:14px;white-space:nowrap}th{text-align:left;position:sticky;top:0;background:#f5f8fc;z-index:1;color:#617189;font-weight:600}th,td{padding:12px;border-bottom:1px solid #e8edf4}td button{padding:4px 10px;font-size:13px}.ac{color:#16806b;font-weight:700}.pending{color:#997214}.bad{color:#c05b4d}.empty{text-align:center;padding:48px 16px;color:#687c98}.pager{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-top:14px}.preview{max-height:220px;overflow:auto;margin-top:14px}.student-head{display:flex;justify-content:space-between;gap:14px;align-items:center}.wide{min-width:260px}a{color:#235de4;text-decoration:none}dialog{border:1px solid #d7e2f0;border-radius:14px;max-width:440px;width:90%;padding:24px;color:#25344b}dialog::backdrop{background:#17253a77}
-    #rank-table th,#rank-table td{padding:10px 8px}#rank-table .muted{font-size:12px}
-    @media(max-width:800px){.shell{padding:18px 14px}.cards{grid-template-columns:repeat(2,1fr)}.panel{padding:16px}.launch{right:16px}.wide{min-width:0;width:100%}.chart{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  </style>
-  <button class="launch" type="button">班级</button>
-  <section class="overlay" hidden role="dialog" aria-modal="true" aria-label="班级管理">
-    <div class="shell"><header class="top"><div><div class="eyebrow">ACCODING · CLASSROOM</div><h1>班级</h1><span class="tag">${ACCODING_MODERN_VERSION}</span></div><button data-action="close">← 返回 OJ</button></header>
-    <div class="toolbar"><div class="row"><select id="class-select" aria-label="选择班级"></select><button data-action="import">＋ 导入名册</button></div><div class="row"><button data-action="rename">重命名</button><button data-action="export">导出名册 CSV</button><button class="danger" data-action="delete">删除班级</button></div></div>
-    <div id="message" class="message" role="status" aria-live="polite" hidden></div>
-    <section id="import-panel" class="panel" hidden><h2>从 Excel 创建班级</h2><div class="row"><input id="file" type="file" accept=".xls,.xlsx" aria-label="选择 XLS 或 XLSX 名册"><label>工作表 <select id="sheet" disabled></select></label><label>班级名称 <input id="class-name" maxlength="80" placeholder="例如：26 秋程设 · 王君臣"></label><button class="primary" data-action="create" disabled>确认创建</button><button data-action="cancel-import">取消</button></div><div id="preview" class="preview"></div></section>
-    <div id="empty" class="panel empty">导入一份 XLS / XLSX 名册，开始查看班级学习情况。</div>
-    <main id="workspace" hidden><section class="panel"><div class="toolbar"><div><h2>比赛学习情况</h2></div><div class="row"><select id="contest-select" class="wide" aria-label="选择比赛"><option value="">选择可见比赛</option></select><input id="contest-id" type="number" min="1" autocomplete="off" inputmode="numeric" placeholder="或输入比赛 ID" size="12" aria-label="比赛 ID"><button class="primary" data-action="load">读取比赛</button><button data-action="refresh">刷新统计</button><label>导出格式 <select id="score-export-format" aria-label="比赛成绩导出格式" disabled><option value="xlsx">XLSX</option><option value="csv">CSV</option></select></label><button data-action="export-score" disabled>导出比赛成绩</button></div></div><p id="contest-title" class="muted"></p></section><div class="row" role="tablist" aria-label="班级比赛页面"><button id="contest-tab" data-action="contest-tab" role="tab" aria-selected="true" aria-controls="contest-pane" class="primary">比赛统计</button><button id="upsolve-tab" data-action="upsolve-tab" role="tab" aria-selected="false" aria-controls="upsolve-pane">补题排行榜</button><button id="review-tab" data-action="review-tab" role="tab" aria-selected="false" aria-controls="review-pane">代码复核</button></div><section id="review-pane" class="panel" role="tabpanel" aria-labelledby="review-tab" hidden></section><div id="contest-pane" role="tabpanel" aria-labelledby="contest-tab">
-    <div id="metrics" class="cards"></div><section id="stats-panel" class="panel" hidden><div class="toolbar"><h2>逐题通过情况</h2><span id="chart-legend" class="muted">蓝色：通过人数　浅蓝：尝试人数</span></div><div id="chart" class="chart"></div></section>
-    <section id="accepted-panel" class="panel" hidden><div class="toolbar"><h2>按题查看通过提交</h2><div class="row"><select id="accepted-problem" aria-label="选择通过提交的题目"><option value="">选择一道题</option></select><input id="accepted-search" placeholder="搜索姓名、学号、班级" aria-label="搜索通过同学"><select id="accepted-mode" aria-label="通过提交显示方式"><option value="latest">每人最新一条 AC</option><option value="all">全部 AC 提交</option></select><button data-action="refresh-accepted" disabled>刷新通过提交</button><button data-action="review-problem" disabled>进入本题代码核查</button></div></div><p class="muted">仅显示本班同学在比赛时间内的 AC 提交。</p><p id="accepted-count" class="muted" role="status" aria-live="polite"></p><div id="accepted-table" class="table-wrap"></div><div id="accepted-pager" class="pager"></div></section>
-    <section class="panel"><div class="toolbar"><h2>班级同学</h2><div class="row"><input id="search" placeholder="搜索姓名、学号、班级" aria-label="搜索学生"><select id="member-filter" aria-label="筛选学生"><option value="all">全部同学</option><option value="matched">已匹配</option><option value="missing">榜单未找到</option><option value="ambiguous">学号冲突</option></select></div></div><div id="members" class="table-wrap"></div><div id="member-pager" class="pager"></div></section>
-    </div><section id="upsolve-pane" class="panel" role="tabpanel" aria-labelledby="upsolve-tab" hidden><div class="toolbar"><h2>补题排行榜</h2><div class="row"><label>截止时间 <input id="upsolve-until" type="datetime-local" step="1" aria-label="补题截止时间" title="留空查询至当前时间（北京时间）"></label><button data-action="upsolve" disabled class="primary">更新排行榜</button><button data-action="cancel-upsolve" hidden>取消查询</button></div></div><div class="toolbar" style="margin:12px 0"><div class="row"><select id="ranking-order" aria-label="排名依据"><option value="upsolved">按赛后补过排名</option><option value="total">按累计通过排名</option></select><input id="ranking-search" placeholder="搜索姓名、学号" aria-label="搜索排行榜学生"></div><span id="upsolve-time" class="muted"></span></div><div id="rank-table" class="table-wrap"><div class="empty">读取比赛后，更新补题排行榜。</div></div><div id="rank-pager" class="pager"></div></section>
-    <section id="student-panel" class="panel" hidden><div class="student-head"><div><h2 id="student-title"></h2></div><div class="row"><select id="submission-scope" aria-label="提交范围"><option value="contest">赛内提交</option><option value="upsolve" disabled>赛后提交</option><option value="all" disabled>全部提交</option></select><select id="problem-filter" aria-label="筛选题目"><option value="all">全部题目</option></select><select id="result-filter" aria-label="筛选提交结果"><option value="all">全部结果</option><option value="AC">仅通过</option><option value="failed">未通过（已评测）</option><option value="pending">评测中</option></select><button data-action="refresh-submissions">刷新提交</button><button data-action="close-student">收起</button></div></div><div id="student-problems" class="table-wrap" hidden style="margin:16px 0"></div><div id="submissions" class="table-wrap"></div><div id="submission-pager" class="pager"></div></section></main>
-    </div><section id="problem-review-page" class="problem-review-page" hidden aria-label="本题提交核查"><div class="toolbar"><h2>本题提交核查名单</h2><button data-action="close-problem-review">返回班级页面</button></div><div id="problem-review-content" class="panel"></div></section><dialog id="confirm-dialog"><h2 id="dialog-title"></h2><p id="dialog-text"></p><input id="dialog-input" maxlength="80" hidden><div class="pager"><button data-action="dialog-cancel">取消</button><button class="primary" data-action="dialog-confirm">确认</button></div></dialog>
-  </section>`;
-  if(document.documentElement.matches('.am,.am-ng'))layoutClassWorkspace(root);
-  const $ = selector => root.querySelector(selector);
-  const classStorage=createClassStorage(localStorage,{
-    get:typeof GM_getValue==='function'?GM_getValue:undefined,
-    set:typeof GM_setValue==='function'?GM_setValue:undefined
-  });
-  const key=classStorage.key;
-  let classes = [], currentId = '', sheets = [], preview = null, contest = null, rank = null, summary = null;
-  let activeStudent = null, submissionCache = null, memberPage = 0, submissionPage = 0, generation = 0;
-  let rankController = null, subController = null, dialogAction = null, opener = null;
-  let submissionRequest = null, submissionError = '', acceptedPage = 0;
-  let clockOffset = 0;
-  let upsolve = null, upsolveController = null, pageMode = 'contest', rankingPage = 0;
-  const isUpsolve = () => pageMode === 'upsolve';
-  let storageError = '', previousOverflow = '';
-  function closeClasses(){if($('.overlay').hidden)return;$('.overlay').hidden=true;document.body.style.overflow=previousOverflow;resetContest();opener?.focus();}
-  try {classes=classStorage.load();}
-  catch (e) {
-    storageError='班级名册无法安全同步，已停止写入，避免覆盖原名册。'+e.message;
-    try {const local=JSON.parse(localStorage.getItem(key));if(local?.version===1&&Array.isArray(local.classes))classes=local.classes;}catch{}
+function mountClassManager(core,contestCore,upsolveCore,upsolveReader,reviewCore){
+  if(document.getElementById('am-classes'))return;
+  const host=document.createElement('div');host.id='am-classes';document.body.append(host);
+  const root=host.attachShadow({mode:'open'}),client=createTeachingClient();
+  root.innerHTML=`<style>${ACCODING_TEACHING_CSS}\n${ACCODING_REVIEW_CSS}</style><button class="launch" type="button">教学工作台</button><section class="overlay" hidden aria-label="教学工作台"><div class="shell"><aside class="rail"><a class="brand" href="${accodingPath('/contest/index')}"><b>a/</b><span>OJ Modern<small>教学工作台</small></span></a><nav aria-label="教学导航"></nav><div class="rail-bottom"><a id="admin-link" target="_blank" rel="noopener noreferrer">管理后台 ↗</a></div></aside><div class="content"><header class="top"><div class="filters"><label>课程<select id="course-select" aria-label="课程"></select></label><label>类型<select id="class-type" aria-label="班级类型"><option value="teaching">教师班</option><option value="administrative">行政班</option></select></label><label>班级<select id="class-select" aria-label="当前班级"></select></label></div><div class="actions"><span class="tag" id="account-state">未连接</span><button id="connection-button" type="button">连接设置</button><button class="icon-button" id="close-workspace" type="button" aria-label="关闭教学工作台">关闭</button></div></header><main class="body"><div id="message" class="message" role="status" hidden></div><section id="connection" class="connection" hidden><h2>连接教学服务</h2><form><label>服务地址<input id="service-url" type="url" required></label><label>OJ 账号<input id="oj-account" autocomplete="username" required></label><label>密码<input id="oj-password" type="password" autocomplete="current-password" required></label><div class="actions"><button type="button" id="cancel-connect">取消</button><button class="primary" type="submit">连接 OJ</button></div></form></section><div id="workspace"><div class="heading"><div><h1 id="page-title">班级概览</h1><p id="page-meta"></p></div><div class="actions"><button id="refresh-data" type="button">刷新数据</button><button id="export-data" type="button">导出成绩</button><button id="project-data" type="button">投屏</button></div></div><div id="contest-toolbar" class="toolbar"><div class="filters"><label>比赛<select id="contest-select" aria-label="比赛"></select></label></div><div class="scope"><label><input id="include-retake" type="checkbox">含重修学生</label><label><input id="include-special" type="checkbox">含特殊比赛</label></div></div><div id="contest-tabs" class="tabs" role="tablist" aria-label="比赛分析"></div><div id="page-content"></div><section id="review-pane" class="panel" hidden></section></div></main></div></div><div id="student-drawer" class="drawer" hidden><section class="drawer-content" role="dialog" aria-modal="true" aria-label="学生详情"><header class="drawer-head"><div><h2 id="student-title"></h2><span id="student-id" class="muted"></span></div><button id="close-student">关闭</button></header><div id="student-body" class="drawer-body"></div></section></div><section id="projection" class="projection" hidden aria-label="比赛投屏"></section></section>`;
+  const $=s=>root.querySelector(s),make=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=String(text);if(cls)n.className=cls;return n;};
+  const button=(text,fn,cls)=>{const b=make('button',text,cls);b.type='button';b.onclick=()=>run(fn);return b;};
+  const select=(id,label,values)=>{const s=make('select');s.id=id;s.setAttribute('aria-label',label);for(const [v,t]of values)s.append(new Option(t,v));return s;};
+  const link=(text,href)=>{const a=make('a',text);a.href=href;a.target='_blank';a.rel='noopener noreferrer';return a;};
+  const prefKey='accoding-modern.teaching.selection.v1';
+  let saved=JSON.parse(localStorage.getItem(prefKey)||'{}'),bootstrap=null,members=[],contests=[],data=null,submissions=null,semesterData=null,outcomeData=null,curveData=null;
+  let course=saved.course||'',classId=saved.classId||'',type=saved.type||'teaching',cid=saved.cid||'',mode=saved.mode||'overview',tab=saved.tab||'overview';
+  let includeRetake=!!saved.includeRetake,includeSpecial=!!saved.includeSpecial,generation=0,controller=null,studentVersion=0,upsolve=null,upsolveController=null,projectTimer=null,opener=null,previousOverflow='',memberQuery='',page=0,problemId='',outcomeKind='all';
+  const titles={overview:'班级概览',contest:'比赛分析',semester:'学期分析',upsolve:'补题排行榜',review:'代码复核'};
+  const options=(s,rows,value)=>{s.replaceChildren(...rows.map(([v,t])=>new Option(t,v)));s.value=value;};
+  const currentClass=()=>bootstrap?.classes.find(k=>k.id===classId),currentCourse=()=>bootstrap?.courses.find(c=>c.id===course);
+  const classLabel=name=>bootstrap?.classes.find(k=>k.courseId===course&&k.type===type&&k.name===name)?.label||name;
+  const selectedMembers=()=>members.filter(m=>includeRetake||!m.isRetake);
+  const query=()=>({course,class_id:classId,klass_type:type,include_retake:includeRetake,include_special:includeSpecial});
+  const save=()=>localStorage.setItem(prefKey,JSON.stringify({course,classId,type,cid,mode,tab,includeRetake,includeSpecial}));
+  const number=(v,digits=1)=>v==null?'—':Number(v).toLocaleString('zh-CN',{maximumFractionDigits:digits});
+  const stamp=v=>v?new Date(/[zZ]|[+]\d\d:\d\d$/.test(v)?v:v.replace(' ','T')+'+08:00').toLocaleString('zh-CN',{hour12:false}):'尚未同步';
+  function notice(text,error=false){$('#message').textContent=text;$('#message').hidden=!text;$('#message').classList.toggle('error',error);}
+  async function run(fn){try{await fn();}catch(e){if(e.name!=='AbortError')notice(e.message,true);}}
+  function reset(){generation++;controller?.abort();controller=new AbortController();upsolveController?.abort();upsolveController=null;data=submissions=semesterData=outcomeData=curveData=upsolve=null;studentVersion++;$('#student-drawer').hidden=true;review.setActive(false);review.reset();}
+  function request(path,extra={}){return client.request(path,{query:query(),signal:controller?.signal,...extra});}
+  function table(headers,rows){const wrap=make('div',null,'table-wrap'),t=make('table'),head=make('thead'),tr=make('tr'),body=make('tbody');headers.forEach(h=>tr.append(make('th',h)));head.append(tr);for(const values of rows){const tr=make('tr');for(const value of values){const td=make('td');if(value instanceof Node)td.append(value);else td.textContent=value??'—';tr.append(td);}body.append(tr);}if(!rows.length){const tr=make('tr'),td=make('td','暂无符合条件的记录','empty');td.colSpan=headers.length;tr.append(td);body.append(tr);}t.append(head,body);wrap.append(t);return wrap;}
+  function panel(title,...children){const p=make('section',null,'panel');if(title){const head=make('div',null,'panel-head');head.append(make('h2',title));p.append(head);}p.append(...children);return p;}
+  function metricCards(values){const cards=make('div',null,'cards');for(const [label,value,note]of values){const card=make('div',null,'metric');card.append(make('span',label),make('strong',value));if(note)card.append(make('small',note));cards.append(card);}return cards;}
+  function tag(text,kind=''){return make('span',text,'tag '+kind);}
+  function pagination(rows,render,size=20){const body=make('div');const draw=()=>{page=Math.min(page,Math.max(0,Math.ceil(rows.length/size)-1));body.replaceChildren(render(rows.slice(page*size,(page+1)*size)));const pager=make('div',null,'pager'),prev=button('上一页',()=>{page--;draw();}),next=button('下一页',()=>{page++;draw();});prev.disabled=page===0;next.disabled=(page+1)*size>=rows.length;pager.append(make('span',`共 ${rows.length} 条 · ${page+1} / ${Math.max(1,Math.ceil(rows.length/size))}`),prev,next);body.append(pager);};draw();return body;}
+  const review=createAiReviewPanel($('#review-pane'),reviewCore,()=>({classId:classId||'course:'+course,className:currentClass()?.name||currentCourse()?.name,contest:modernContest(),summary:reviewSummary(),generation,contestNames:Object.fromEntries(contests.map(c=>[c.id,c.title]))}),null,{loadContestSubmissions:loadSubmissions});
+  function modernContest(){return data?{id:cid,title:data.name,start:contestCore.time(data.start_time),end:contestCore.time(data.end_time),problems:data.problems.map(p=>({id:String(p.problem_id),label:p.order_letter,rankKey:p.order_letter,title:p.title,maxScore:p.max_score}))}:null;}
+  function reviewSummary(){const byId=new Map((data?.scores||[]).map(r=>[r.student_id,r]));return {rows:selectedMembers().map(m=>{const details=data?.problemResults[m.studentId]||{},r=byId.get(m.studentId);return {...m,status:m.userId?'matched':'missing',details,accepted:Object.values(details).filter(p=>p.result==='AC').length,tried:Object.keys(details).length,totalScore:r?.total_score};})};}
+  for(const [key,icon]of [['overview','grid'],['contest','contest'],['semester','submission'],['upsolve','problem'],['review','search']]){const b=button(titles[key],()=>{if(key==='review')review.setProblemScope(null);return navigate(key);});b.dataset.page=key;b.prepend(workspaceIcon(icon));$('.rail nav').append(b);}
+  for(const [key,title]of [['overview','总览'],['scores','成绩表'],['problems','逐题分析'],['process','过程与对比']]){const b=button(title,async()=>{tab=key;page=0;save();await loadTab();draw();});b.dataset.tab=key;b.setAttribute('role','tab');$('#contest-tabs').append(b);}
+  function updateSelectors(){
+    options($('#course-select'),bootstrap.courses.map(c=>[c.id,c.name+(c.archived?' · 已归档':'')]),course);$('#class-type').value=type;
+    const klasses=bootstrap.classes.filter(k=>k.courseId===course&&k.type===type&&!k.archived);
+    if(!klasses.some(k=>k.id===classId))classId='';
+    options($('#class-select'),[['',klasses.length?'全部班级':'暂无班级'],...klasses.map(k=>[k.id,k.label])],classId);
+    options($('#contest-select'),contests.length?contests.map(c=>[c.id,c.title+(c.state==='live'?' · 进行中':'')]):[['','暂无比赛']],cid);
+    $('#account-state').textContent=bootstrap.username;$('#admin-link').href=client.base()+'/';
+    $('#include-retake').checked=includeRetake;$('#include-special').checked=includeSpecial;
+    host.dispatchEvent(new Event('am-class-change'));save();
   }
-  const selected = () => classes.find(c => c.id === currentId);
-  function notice(text, error = false) {$('#message').textContent = text; $('#message').hidden = !text; $('#message').classList.toggle('error', error);}
-  function persist(next) {
-    if (storageError) throw new Error(storageError);
-    classStorage.save(next); classes = next;
+  async function connectExisting(){reset();const token=generation;notice('正在连接教学服务…');try{const b=await client.request('/bootstrap',{signal:controller.signal});if(token!==generation)return;bootstrap=b;if(!b.courses.some(c=>c.id===course))course=b.courses.find(c=>!c.archived&&b.classes.some(k=>k.courseId===c.id&&!k.archived))?.id||b.courses.find(c=>!c.archived)?.id||b.courses[0]?.id||'';$('#connection').hidden=true;$('#workspace').hidden=false;await loadScope();}catch(e){if(token!==generation||e.name==='AbortError')return;bootstrap=null;members=[];contests=[];$('#workspace').hidden=true;showConnection();notice(e.message,true);}}
+  function showConnection(){$('#connection').hidden=false;$('#service-url').value=client.base();$('#connection input').focus();}
+  async function loadScope(){
+    reset();const token=generation;page=0;notice('正在读取后台班级与比赛…');
+    if(!course){updateSelectors();notice('当前账号暂无可管理课程');draw();return;}
+    // Class selection is checked again after switching courses.
+    if(!bootstrap.classes.some(k=>k.id===classId&&k.courseId===course&&k.type===type&&!k.archived))classId='';
+    const result=await request('/contests');if(token!==generation)return;contests=result.contests;
+    if(!contests.some(c=>c.id===cid))cid=contests.find(c=>['verified','live'].includes(c.state))?.id||contests[0]?.id||'';
+    const roster=await request('/members',{query:{...query(),include_retake:true}});if(token!==generation)return;members=roster.members;updateSelectors();await loadPage(token);
   }
-  function el(tag, text, cls) {const n = document.createElement(tag); if (text != null) n.textContent = String(text); if (cls) n.className = cls; return n;}
-  function option(value, text) {const n = el('option', text); n.value = value; return n;}
-  function button(text, action) {const n = el('button', text); n.type = 'button'; n.onclick = action; return n;}
-  function table(headers, rows) {
-    const t = el('table'), head = el('thead'), hr = el('tr'), body = el('tbody');
-    headers.forEach(h => hr.append(el('th', h))); head.append(hr);
-    for (const row of rows) {const tr = el('tr'); for (const cell of row) {const td = el('td'); td.append(cell instanceof Node ? cell : document.createTextNode(String(cell ?? '—'))); tr.append(td);} body.append(tr);}
-    if (!rows.length) {const tr=el('tr'), td=el('td','没有符合条件的记录','empty');td.colSpan=headers.length;tr.append(td);body.append(tr);}
-    t.append(head, body); return t;
+  async function loadContest(){if(data||!cid)return;const token=generation;const result=await request('/contests/'+cid);if(token===generation)data=result;}
+  async function loadSubmissions(){if(submissions)return submissions;const token=generation;const result=await request('/contests/'+cid+'/submissions');if(token!==generation)throw new DOMException('已切换范围','AbortError');submissions=result.submissions;return submissions;}
+  async function loadTab(){const token=generation;await loadContest();if(!data||token!==generation)return;if(mode==='contest'&&tab==='problems'&&classId&&!outcomeData){const result=await request('/contests/'+cid+'/problems');if(token===generation)outcomeData=result;}
+    if(mode==='contest'&&tab==='process'&&!curveData){const result=await request('/contests/'+cid+'/curves');if(token===generation)curveData=result;}}
+  async function loadPage(token=generation){
+    notice('正在读取教学数据…');$('#page-content').replaceChildren(make('div','正在加载…','empty'));
+    try{if(mode==='semester'){const result=await request('/semester');if(token===generation)semesterData=result;}else if(cid){await loadTab();}if(token!==generation)return;notice('');draw();}
+    catch(e){if(token!==generation||e.name==='AbortError')return;draw();notice(e.message,true);}
   }
-  function pager(target, count, page, change) {
-    target.replaceChildren(); const pages = Math.max(1, Math.ceil(count / 30));
-    const prev = button('上一页', () => change(page - 1)), next = button('下一页', () => change(page + 1));
-    prev.disabled = page <= 0; next.disabled = page >= pages - 1;
-    target.append(el('span', `共 ${count} 条 · ${page + 1} / ${pages}`, 'muted'), prev, next);
+  async function navigate(next){if(next==='review'&&mode!=='contest')review.setProblemScope(null);mode=next;page=0;save();await loadPage();}
+  function draw(){
+    $('#page-title').textContent=titles[mode];$('#page-meta').textContent=[currentCourse()?.semester,currentClass()?.label||'全部班级',data?`同步于 ${stamp(data.syncedAt)}`:''].filter(Boolean).join(' · ');
+    for(const b of root.querySelectorAll('[data-page]')){if(b.dataset.page===mode)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');}
+    for(const b of root.querySelectorAll('[data-tab]'))b.setAttribute('aria-selected',String(b.dataset.tab===tab));
+    $('#contest-toolbar').hidden=mode==='overview';$('#contest-select').closest('label').hidden=mode==='semester';$('#contest-tabs').hidden=mode!=='contest';$('#review-pane').hidden=mode!=='review';$('#export-data').hidden=!['contest','semester'].includes(mode);$('#export-data').disabled=mode==='contest'&&!data;$('#project-data').hidden=mode!=='contest';$('#project-data').disabled=!data;
+    const out=$('#page-content');out.hidden=mode==='review';out.replaceChildren();
+    review.setActive(mode==='review'&&!!data);
+    if(!bootstrap?.classes.some(k=>k.courseId===course&&!k.archived)){const empty=make('div',null,'empty');empty.append(make('p','暂无班级'),link('前往管理后台',client.base()+'/'));out.append(empty);return;}
+    if(mode==='overview')drawOverview(out);
+    if(mode==='contest'){if(!data){out.append(make('div','暂无已同步比赛','empty'));return;}if(tab==='overview')drawContestOverview(out);if(tab==='scores')drawScores(out);if(tab==='problems')drawProblems(out);if(tab==='process')drawProcess(out);}
+    if(mode==='semester')drawSemester(out);
+    if(mode==='upsolve')drawUpsolve(out);
+    if(mode==='review'&&!data)out.append(make('div','选择已同步的比赛后查看代码复核','empty'));
   }
-  const reviewPanel=createAiReviewPanel($('#review-pane'),reviewCore,()=>({classId:currentId,className:selected()?.name,contest,summary,generation,contestNames:Object.fromEntries([...$('#contest-select').options].filter(option=>/^\d+$/.test(option.value)).map(option=>[option.value,option.textContent]))}),null,{loadContestSubmissions:reviewContestSubmissions});
-  const problemReviewPanel=createAiReviewPanel($('#problem-review-content'),reviewCore,()=>({classId:currentId,className:selected()?.name,contest,summary,generation,contestNames:Object.fromEntries([...$('#contest-select').options].filter(option=>/^\d+$/.test(option.value)).map(option=>[option.value,option.textContent]))}),null,{problemList:true,loadContestSubmissions:reviewContestSubmissions});
-  function resetContest() {
-    reviewPanel.reset();
-    problemReviewPanel.setActive(false);problemReviewPanel.reset();$('#problem-review-page').hidden=true;
-    generation++; upsolveController?.abort();upsolveController=null;upsolve=null;rankingPage=0;drawStandings();$('#upsolve-time').textContent='';$('[data-action=upsolve]').disabled=true;$('[data-action=cancel-upsolve]').hidden=true;$('#submission-scope').value='contest';for(const o of $('#submission-scope').options)o.disabled=o.value!=='contest';$('#student-problems').hidden=true; rankController?.abort(); subController?.abort(); rankController = subController = null;
-    contest = rank = summary = activeStudent = submissionCache = null; memberPage = submissionPage = 0;
-    submissionRequest=null;submissionError='';acceptedPage=0;
-    $('#accepted-panel').hidden=true;$('#accepted-problem').replaceChildren(option('','选择一道题'));
-    $('#accepted-search').value='';drawAccepted();
-    $('#student-panel').hidden = $('#stats-panel').hidden = true; $('#contest-title').textContent = '';
-    $('#score-export-format').value = 'xlsx'; $('#score-export-format').disabled = true; $('[data-action="export-score"]').disabled = true;
-    $('[data-action="load"]').disabled = $('[data-action="refresh"]').disabled = false;
+  function drawOverview(out){const rows=selectedMembers(),matched=rows.filter(m=>m.userId).length;
+    out.append(metricCards([['班级成员',rows.length],['已匹配 OJ',matched],['课程比赛',contests.length],['最近均分',number(data?.summary.average_score),data?data.name:'暂无比赛数据']]));
+    const recent=make('div',null,'mini-list');for(const c of contests.slice(0,5)){const b=button('',async()=>{cid=c.id;data=null;mode='contest';tab='overview';save();await loadPage();});b.append(make('span',c.title),tag(c.state==='verified'?'已核实':c.state==='live'?'进行中':'待同步',c.state==='verified'?'success':''));recent.append(b);}if(!contests.length)recent.append(make('p','暂无比赛','muted'));
+    const col=make('div',null,'columns');col.append(panel('班级成员',memberList(rows)),panel('最近比赛',recent));out.append(col);
   }
-  function drawClasses() {
-    if (!selected()) currentId = classes[0]?.id || '';
-    $('#class-select').replaceChildren(...(classes.length ? classes.map(c => option(c.id, `${c.name} · ${c.members.length} 人`)) : [option('', '尚未创建班级')]));
-    $('#class-select').value = currentId;
-    $('#workspace').hidden = !selected(); $('#empty').hidden = !!selected();
-    for(const control of root.querySelectorAll('.class-contest-picker,.class-rail>[role=tablist]'))control.hidden=!selected();
-    for (const action of ['rename','delete','export']) $(`[data-action="${action}"]`).disabled = !selected();
-    drawMembers(); drawStats();
-    host.dispatchEvent(new Event('am-class-change'));
-  }
-  function drawStats() {
-    const c = selected(); if (!c) return;
-    const values = [['班级人数', c.members.length], ['榜单已匹配', summary ? summary.matched : '—'], ['有通过的同学', summary ? summary.rows.filter(m=>m.accepted > 0).length : '—'], ['待核对学号', summary ? summary.missing + summary.ambiguous : '—']];
-    $('#metrics').replaceChildren(...values.map(([label,value]) => {const card=el('div',null,'metric'); card.append(el('span',label,'muted'),el('strong',value)); return card;}));
-    const scoreReady = !!(contest && summary);
-    $('#score-export-format').disabled = !scoreReady; $('[data-action="export-score"]').disabled = !scoreReady;
-    $('#stats-panel').hidden = !summary || contestCore.phase(contest, Date.now() + clockOffset).key === 'upcoming';
-    if (!summary) return;
-    $('#chart-legend').textContent='蓝色：通过人数　浅蓝：尝试人数';
-    $('#chart').replaceChildren(...summary.stats.map(p => {
-      const card=el('div',null,'problem'), bar=el('div',null,'bar'), tried=el('i'), ac=el('em'), counts=el('div',null,'counts');
-      tried.style.width=`${100*p.tried/c.members.length}%`; ac.style.width=`${100*p.accepted/c.members.length}%`; bar.append(tried,ac);
-      counts.append(el('span',`${p.accepted} 人通过`),el('span',`${p.tried} 人尝试`));
-      const view=button('查看通过提交',()=>{ $('#accepted-problem').value=p.id;$('#accepted-problem').dispatchEvent(new Event('change'));$('#accepted-panel').scrollIntoView({behavior:'smooth',block:'start'}); });
-      view.style.marginTop='10px';view.setAttribute('aria-label',`查看 ${p.label} 题的通过提交`);
-      card.append(el('b',p.label),el('small',p.title),bar,counts,view); card.title=p.title;return card;
-    }));
-  }
-  function drawMembers() {
-    const c=selected();if(!c)return;
-    const q=$('#search').value.trim().toLowerCase(), filter=$('#member-filter').value;
-    const all=summary?.rows || c.members.map(m=>({...m,status:'unloaded'}));
-    const rows=core.sortMembers(all.filter(m=>(filter==='all'||m.status===filter)&&`${m.name} ${m.studentId} ${m.group}`.toLowerCase().includes(q)));
-    memberPage=Math.min(memberPage,Math.max(0,Math.ceil(rows.length/30)-1));
-    $('#members').replaceChildren(table(['学号','姓名','行政班级','匹配状态','赛时通过 / 尝试题数','提交记录'],rows.slice(memberPage*30,memberPage*30+30).map(m=>{
-      const detail=button('查看提交',()=>showStudent(m));detail.disabled=!m.userId;
-      return [m.studentId,m.name,m.group||'—',{matched:'已匹配',missing:'榜单未找到',ambiguous:'学号冲突',unloaded:'未读取比赛'}[m.status],m.userId?`${m.accepted} / ${m.tried}`:'—',detail];
-    })));
-    pager($('#member-pager'),rows.length,memberPage,page=>{memberPage=page;drawMembers();});
-  }
-  function switchPane(mode) {
-    pageMode=mode;
-    for(const name of ['contest','upsolve','review']){
-      $(`#${name}-pane`).hidden=name!==mode;
-      $(`#${name}-tab`).classList.toggle('primary',name===mode);
-      $(`#${name}-tab`).setAttribute('aria-selected',String(name===mode));
+  function memberList(rows){const input=make('input');input.type='search';input.placeholder='搜索姓名、学号';input.setAttribute('aria-label','搜索成员');input.value=memberQuery;const body=make('div');const draw=()=>{const q=input.value.trim().toLowerCase();body.replaceChildren(pagination(rows.filter(m=>`${m.studentId} ${m.name}`.toLowerCase().includes(q)),items=>table(['学号','姓名','OJ 关联','操作'],items.map(m=>[m.studentId,m.name,m.userId?tag('已匹配','success'):tag('未匹配','warning'),button('查看学生',()=>showStudent(m),'link')]))));};input.oninput=()=>{memberQuery=input.value;page=0;draw();};draw();const wrap=make('div');wrap.append(input,body);return wrap;}
+  function summaryCards(){const s=data.summary;return metricCards([['应到人数',s.expected],['参与人数',s.participated],['未提交',s.unsubmitted],['平均分',number(s.average_score),`${number(s.contest_max_score)} 分制`]]);}
+  function problemBars(){const chart=make('div',null,'problem-bars');const total=data.summary.expected;for(const p of data.problems){const row=make('div',null,'problem-row'),label=make('div',null,'problem-label'),bar=make('div',null,'bar'),tried=make('i'),ac=make('b');label.title=p.title;label.append(make('strong',p.order_letter),document.createTextNode(p.title));tried.style.width=(total?100*p.attempted/total:0)+'%';ac.style.width=(total?100*p.accepted/total:0)+'%';bar.title=`${p.accepted} 人通过 · ${p.attempted} 人尝试`;bar.append(tried,ac);row.append(label,bar,make('span',`${p.accepted} / ${p.attempted} 人`,'problem-count'));chart.append(row);}return chart;}
+  function drawContestOverview(out){out.append(summaryCards());const chart=panel('逐题通过与尝试',problemBars());const legend=make('div',null,'legend');legend.append(make('span','通过'),make('span','尝试'));chart.querySelector('.panel-head').append(legend);out.append(chart);
+    const missing=data.unsubmitted,unmatched=selectedMembers().filter(m=>!m.userId);
+    if(missing.length||unmatched.length){
+      const details=make('details',null,'attendance-details');
+      details.append(make('summary',`未提交 ${missing.length} 人 · 账号未匹配 ${unmatched.length} 人`));
+      details.append(table(['学号','姓名','状态','操作'],missing.map(r=>{const m=members.find(m=>m.studentId===r.student_id);return [r.student_id,r.name,!m?.userId?'OJ 账号未匹配':r.participated?'已参赛，零提交':'未参赛',button('查看学生',()=>showStudent(m),'link')];})));
+      out.append(panel('',details));
     }
-    activeStudent=null;$('#student-panel').hidden=true;
-    const reviewReady=reviewPanel.setActive(mode==='review');
-    if(mode==='upsolve')drawStandings();
-    return reviewReady;
   }
-  function drawStandings() {
-    if(!upsolve){$('#rank-table').replaceChildren(el('div','读取比赛后，更新补题排行榜。','empty'));$('#rank-pager').replaceChildren();return;}
-    const query=$('#ranking-search').value.trim().toLowerCase();
-    const rows=upsolveCore.standings(upsolve.rows,$('#ranking-order').value).filter(m=>`${m.name} ${m.studentId}`.toLowerCase().includes(query));
-    rankingPage=Math.min(rankingPage,Math.max(0,Math.ceil(rows.length/30)-1));
-    $('#rank-table').replaceChildren(table(['排名','学号','姓名','赛后补过','累计通过','最后补过',...contest.problems.map(p=>p.label),'记录'],rows.slice(rankingPage*30,rankingPage*30+30).map(m=>{
-      const details=button('查看补题',()=>showStudent(m));details.disabled=!m.userId;
-      return [el('strong',m.ranking??'—'),m.studentId,m.name,el('strong',m.upsolved??'—','ac'),m.total??'—',m.lastUpsolved?new Date(m.lastUpsolved).toLocaleString():'—',...m.problems.map(p=>{
-        if(p.status==='upsolved'){const a=codeLink(p.first.id);a.textContent='补过';a.className='ac';a.title=`${p.title} · ${new Date(p.first.timestamp).toLocaleString()}`;return a;}
-        const cell=el('span',p.status==='during'?'赛内 AC':p.status==='unknown'?'待核对':'—',p.status==='during'?'muted':'');cell.title=p.title;return cell;
-      }),details];
-    })));
-    pager($('#rank-pager'),rows.length,rankingPage,page=>{rankingPage=page;drawStandings();});
+  function drawScores(out){
+    const form=make('div',null,'toolbar'),input=make('input');input.type='search';input.placeholder='搜索姓名、学号';input.setAttribute('aria-label','搜索成绩');input.value=memberQuery;
+    const state=select('score-status','成绩筛选',[['all','全部学生'],['missing','未提交'],['unmatched','学号未匹配']]);state.value=outcomeKind;
+    const order=select('score-order','成绩排序',[['score','按总分 · 同分并列'],['oj','按 OJ 名次 · 含罚时']]);form.append(input,state,order);
+    const content=make('div'),byId=new Map(data.scores.map(r=>[r.student_id,r]));
+    const ranked=()=>[...selectedMembers()].sort((a,b)=>{const x=byId.get(a.studentId),y=byId.get(b.studentId);return order.value==='oj'?(x?.rank??Infinity)-(y?.rank??Infinity)||a.studentId.localeCompare(b.studentId):(y?.total_score??-Infinity)-(x?.total_score??-Infinity)||(x?.rank??Infinity)-(y?.rank??Infinity)||a.studentId.localeCompare(b.studentId);});
+    const draw=()=>{const all=ranked(),ranks=new Map();let previous=null;all.forEach((m,i)=>{const score=byId.get(m.studentId)?.total_score;if(score!=null)ranks.set(m.studentId,score===previous?ranks.get(all[i-1].studentId):i+1);previous=score;});
+      const q=input.value.trim().toLowerCase(),rows=all.filter(m=>`${m.studentId} ${m.name}`.toLowerCase().includes(q)&&(state.value==='all'||state.value==='unmatched'&&!m.userId||state.value==='missing'&&data.unsubmitted.some(r=>r.student_id===m.studentId)));
+      content.replaceChildren(pagination(rows,items=>table(['范围内位次','学号','姓名','总分 ↓','通过题数',...data.problems.map(p=>p.order_letter),'OJ 名次','操作'],items.map(m=>{const r=byId.get(m.studentId),details=data.problemResults[m.studentId]||{};return [order.value==='score'?ranks.get(m.studentId)??'—':all.indexOf(m)+1,m.studentId,m.name,r?number(r.total_score):'—',Object.values(details).filter(p=>p.result==='AC').length,...data.problems.map(p=>{const d=details[p.order_letter];return !d?make('span','—','muted'):make('span',`${number(d.score)}${d.result==='AC'?' ✓':d.result?' · '+d.result:''}`,d.result==='AC'?'ac':d.score>0?'partial':'bad');}),r?.rank??'—',button('查看学生',()=>showStudent(m),'link')];}))));
+    };input.oninput=state.onchange=order.onchange=()=>{memberQuery=input.value;outcomeKind=state.value;page=0;draw();};draw();out.append(panel('',form,content));
   }
-  function exportScore() {
-    if (!selected() || !contest || !summary) return;
-    const matrix = core.scoreMatrix(selected().members, summary, contest.problems);
-    const {blob, filename} = createClassScoreExport(matrix, selected().name, contest.title, $('#score-export-format').value);
-    const url = URL.createObjectURL(blob), link = el('a');
-    link.href = url; link.download = filename;
-    link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-  async function readJson(path, signal) {
-    const res=await fetch(path,{credentials:'same-origin',cache:'no-store',signal});
-    if(!res.ok)throw new Error(`读取失败（HTTP ${res.status}），请检查登录状态和比赛权限。`);
-    let data;try{data=contestCore.decode(await res.text());}catch(e){throw new Error('原站未返回可用数据，请检查登录状态或比赛权限。');}
-    if(data?.error)throw new Error(String(data.error));return data;
-  }
-  async function loadContest() {
-    if(!selected())return;
-    const id=$('#contest-id').value.trim()||$('#contest-select').value;
-    if(!/^\d+$/.test(id)){notice('请选择比赛，或输入数字比赛 ID。',true);return;}
-    resetContest();const token=generation;const controller=new AbortController();rankController=controller;
-    $('[data-action="load"]').disabled=$('[data-action="refresh"]').disabled=true;
-    notice('正在读取比赛和榜单…');drawMembers();drawStats();
-    const timeout=setTimeout(()=>controller.abort(),30000);
-    try {
-      const [raw, server]=await Promise.all([readJson(`/api/contests/${id}`,controller.signal),readJson('/api/contests/server_time',controller.signal)]);
-      const c=contestCore.normalizeContest(raw), now=contestCore.time(server?.server_time);
-      if(!Number.isFinite(now))throw new Error('无法读取服务器时间，请稍后重试。');
-      clockOffset=now-Date.now();
-      if(token!==generation)return;
-      if(contestCore.phase(c,now).key==='upcoming'){
-        contest=c;$('#contest-title').textContent=`${c.title} · 比赛未开始`;
-        notice('比赛未开始，暂不展示过题统计。');return;
-      }
-      const data=await readJson(`/api/contests/${id}/rank`,controller.signal);
-      if(token!==generation)return;
-      const result=core.summarize(selected().members,data,c.problems);
-      contest=c;rank=data;summary=result;
-      $('#accepted-panel').hidden=false;
-      $('#accepted-problem').replaceChildren(option('','选择一道题'),...c.problems.map(p=>option(p.id,p.label+' · '+p.title)));
-      drawAccepted();
-      if(pageMode==='review')reviewPanel.setActive(true);
-      $('[data-action=upsolve]').disabled=Date.now()+clockOffset<c.end;
-      $('#contest-title').textContent=`${c.title} · ${contestCore.phase(c,Date.now()+clockOffset).text} · ${new Date().toLocaleTimeString()} 更新`;
-      notice('');
-      drawStats();drawMembers();
-    } catch(e){if(token===generation)notice(e.name==='AbortError'?'读取超时，请重试。':e.message,true);}
-    finally{clearTimeout(timeout);if(token===generation){rankController=null;$('[data-action="load"]').disabled=$('[data-action="refresh"]').disabled=false;}}
-  }
-  async function discoverContests() {
-    try {
-      const res=await fetch('/contest/index',{credentials:'same-origin',cache:'no-store'});
-      const doc=new DOMParser().parseFromString(await res.text(),'text/html'), seen=new Set();
-      const items=[option('','选择可见比赛')];
-      for(const a of doc.querySelectorAll('a[href]')){
-        const url=new URL(a.getAttribute('href'),location.origin), id=accodingPagePath(url)==='/contest-ng/index.html'?url.hash.match(/^#\/(\d+)/)?.[1]:accodingPagePath(url).match(/^\/contest\/(\d+)$/)?.[1];
-        if(!id||seen.has(id))continue;seen.add(id);items.push(option(id,a.textContent.trim()));
-      }
-      $('#contest-select').replaceChildren(...items);
-      const current=location.hash.match(/^#\/(\d+)/)?.[1]||ACCODING_APP_PATHNAME.match(/^\/contest\/(\d+)/)?.[1];
-      if(current){if(!seen.has(current))$('#contest-select').append(option(current,`当前比赛 ${current}`));$('#contest-select').value=current;}
-    }catch(e){notice('比赛列表暂时无法读取，可手动输入比赛 ID。',true);}
-  }
-  function codeLink(id) {
-    if(!/^[1-9]\d*$/.test(String(id)))return el('span','—');
-    const a=el('a','查看代码');a.href=accodingPath(`/submission/${id}`);a.target='_blank';a.rel='noopener noreferrer';a.setAttribute('aria-label',`查看提交 ${id} 的代码`);return a;
-  }
-  function contestSubmissions() {
-    return (submissionCache||[]).filter(s=>contestCore.time(s.created_at)>=contest.start&&contestCore.time(s.created_at)<contest.end);
-  }
-  function acceptedRows() {
-    if(!summary||!submissionCache||!$('#accepted-problem').value)return [];
-    const query=$('#accepted-search').value.trim().toLowerCase();
-    return core.problemSubmissions(contestSubmissions(),summary.rows,$('#accepted-problem').value)
-      .filter(({member:m})=>`${m.name} ${m.studentId} ${m.group||''}`.toLowerCase().includes(query));
-  }
-  function acceptedStudents(rows) {
-    // Rows are newest first; each student receives one entry, regardless of AC count.
-    const seen=new Set();
-    return rows.filter(row=>{const id=row.member.userId;if(seen.has(id))return false;seen.add(id);return true;});
-  }
-  function drawAccepted() {
-    const ready=!!(contest&&summary&&$('#accepted-problem').value);
-    $('[data-action=refresh-accepted]').disabled=!ready||!!subController;
-    $('[data-action=review-problem]').disabled=!ready||!!subController;
-    $('#accepted-count').textContent='';$('#accepted-pager').replaceChildren();
-    if(!ready||!submissionCache){
-      $('#accepted-table').replaceChildren(el('p',!ready?'选择一道题，查看本班通过同学的提交记录。':submissionError||'正在读取本场比赛的提交记录…',submissionError&&ready?'bad':'muted'));
-      return;
-    }
-    const all=acceptedRows(), students=acceptedStudents(all), rows=$('#accepted-mode').value==='all'?all:students;
-    $('#accepted-count').textContent=`${students.length} 位同学 · ${all.length} 条 AC 提交 · 当前显示 ${rows.length} 条`;
-    acceptedPage=Math.min(acceptedPage,Math.max(0,Math.ceil(rows.length/30)-1));
-    $('#accepted-table').replaceChildren(table(['学号','姓名','行政班级','提交 ID','结果','语言','提交时间','代码','代码复核','记录'],rows.slice(acceptedPage*30,acceptedPage*30+30).map(({member:m,submission:s})=>[
-      m.studentId,m.name,m.group||'—',s.id,el('span','AC','ac'),s.lang,new Date(s.created_at).toLocaleString(),codeLink(s.id),button('进入本题核查名单',()=>void openProblemReview()),button('查看该题全部提交',()=>showAcceptedStudent(m))
-    ])));
-    pager($('#accepted-pager'),rows.length,acceptedPage,page=>{acceptedPage=page;drawAccepted();});
-  }
-  function showAcceptedStudent(member) {
-    void showStudent(member);
-    $('#problem-filter').value=$('#accepted-problem').value;$('#result-filter').value='all';drawSubmissions();
-  }
-  async function showAccepted(force=false) {
-    acceptedPage=0;
-    if(!contest||!summary||!$('#accepted-problem').value){drawAccepted();return;}
-    await loadSubmissionCache(force);
-    drawAccepted();
-  }
-  async function openProblemReview() {
-    if(!contest||!summary||!$('#accepted-problem').value)return;
-    const token=generation,pid=$('#accepted-problem').value;
-    await loadSubmissionCache();
-    if(token!==generation||pid!==$('#accepted-problem').value)return;
-    if(!submissionCache){notice(submissionError||'无法读取本题提交记录。',true);return;}
-    const selected=core.problemReviewSubmissions(contestSubmissions(),summary.rows,pid);
-    const p=contest.problems.find(p=>String(p.id)===pid);
-    problemReviewPanel.setProblemScope({problemId:pid,submissionIds:selected.map(x=>String(x.submission.id)),title:p?`${p.label} · ${p.title}`:pid,attemptedUsers:new Set(selected.map(x=>String(x.member.userId))).size});
-    $('#problem-review-page').hidden=false;$('#problem-review-page').scrollTop=0;
-    await problemReviewPanel.setActive(true);
-  }
-  function drawStudentProblems() {
-    const member=upsolve?.rows.find(m=>m.studentId===activeStudent?.studentId);
-    $('#student-problems').hidden=!member||!isUpsolve();
-    if(!member)return;
-    $('#student-problems').replaceChildren(table(['题目','状态','首次赛后通过','代码'],member.problems.map(p=>[
-      `${p.label} · ${p.title}`,el('span',{during:'赛内通过',upsolved:'赛后补过',unsolved:'仍未通过',unknown:'待核对'}[p.status],p.status==='upsolved'?'ac':p.status==='unsolved'?'bad':''),
-      p.first?new Date(p.first.timestamp).toLocaleString():'—',p.first?codeLink(p.first.id):'—'
-    ])));
-  }
-  async function loadUpsolve() {
-    if(!contest||!summary||upsolveController)return;
-    const token=generation, previousScope=isUpsolve()?$('#submission-scope').value:'upsolve', controller=new AbortController();upsolveController=controller;
-    $('[data-action=upsolve]').disabled=true;$('[data-action=cancel-upsolve]').hidden=false;
-    const timeout=setTimeout(()=>controller.abort(),300000);
-    try {
-      const server=await readJson('/api/contests/server_time',controller.signal), now=contestCore.time(server?.server_time);
-      if(!Number.isFinite(now))throw new Error('无法读取服务器时间。');
-      const input=$('#upsolve-until').value;
-      const until=input?contestCore.time(input.length===16?input+':00':input):now;
-      if(!Number.isFinite(until)||until<contest.end||until>now)throw new Error('截止时间须在比赛结束后、当前时间之前。');
-      notice('正在查询补题…');
-      const result=await upsolveReader.read(contest,summary,until,controller.signal,({pages,finished,total})=>{
-        if(token===generation)notice(`查询补题：${finished} / ${total} 题 · ${pages} 页`);
+  function drawProblems(out){
+    const grid=table(['','题号','标题','满分','提交人数','通过人数','通过率','平均分'],data.problems.map(p=>[
+      classId?button('▸',()=>{},'expand-problem'):'',p.order_letter,p.title,number(p.max_score),p.attempted,p.accepted,number(100*p.accept_rate)+'%',number(p.average_score)+' / '+number(p.max_score)
+    ]));
+    grid.classList.add('problem-summary');
+    const rows=[...grid.querySelectorAll('tbody>tr')];
+    rows.forEach((row,index)=>{const toggle=row.querySelector('button');if(!toggle)return;const p=data.problems[index];toggle.setAttribute('aria-label','展开 '+p.order_letter+' 题');toggle.setAttribute('aria-expanded','false');
+      toggle.onclick=()=>run(async()=>{
+        const existing=row.nextElementSibling;if(existing?.classList.contains('problem-expanded')){existing.remove();toggle.textContent='▸';toggle.setAttribute('aria-expanded','false');return;}
+        const detail=make('tr',null,'problem-expanded'),cell=make('td');cell.colSpan=8;detail.append(cell);row.after(detail);toggle.textContent='▾';toggle.setAttribute('aria-expanded','true');
+        const buckets=outcomeData.problems.find(r=>r.order_letter===p.order_letter),columns=make('div',null,'problem-outcomes');
+        for(const [key,label]of [['full','满分'],['partial','部分得分'],['zero','提交但未得分'],['missing','未提交']]){
+          const box=make('section'),names=make('div',null,'outcome-tags');box.append(make('h3',`${label} · ${buckets[key].length} 人`));
+          for(const r of buckets[key]){const m=members.find(m=>m.studentId===r.student_id),code=key==='partial'?r.best_result:r.last_result;let text=r.name;
+            if(key==='full'&&r.attempts>1)text+=`（+${r.attempts-1}）`;
+            if(key==='partial')text+=` ${code||''} · ${number(r.score_ratio*p.max_score)} 分`;
+            if(key==='zero'&&code)text+=' '+code;
+            const chip=button(text,()=>showStudent(m),'outcome-tag '+(key==='full'?'ac':key==='missing'?'muted':code==='AC'?'ac':'bad'));chip.title=r.student_id;names.append(chip);
+          }if(!buckets[key].length)names.append(make('span','无','muted'));box.append(names);columns.append(box);
+        }
+        cell.append(columns);const actions=make('div',null,'problem-actions'),records=make('details',null,'submission-details');records.append(make('summary','提交记录'));
+        actions.append(button('本题代码复核',async()=>{const all=await loadSubmissions();review.setProblemScope({problemId:String(p.problem_id),title:p.order_letter+' · '+p.title,submissionIds:all.filter(r=>String(r.problem_id)===String(p.problem_id)).map(r=>String(r.id))});await navigate('review');}));
+        records.ontoggle=()=>run(async()=>{if(!records.open||records.childElementCount>1)return;const token=generation,all=await loadSubmissions();if(token!==generation||!records.isConnected)return;const submissions=all.filter(r=>String(r.problem_id)===String(p.problem_id));
+          const result=select('problem-result-'+p.problem_id,'提交结果',[['ac','通过提交'],['all','全部提交'],['failed','未通过提交']]),scope=select('problem-ac-'+p.problem_id,'通过提交范围',[['latest','每人最新 AC'],['all','全部 AC']]),search=make('input'),list=make('div'),tools=make('div',null,'toolbar');search.type='search';search.placeholder='姓名、学号';search.setAttribute('aria-label','搜索提交学生');tools.append(result,scope,search);records.append(tools,list);
+          const draw=()=>{scope.hidden=result.value!=='ac';let visible=submissions.filter(r=>(result.value==='all'||result.value==='ac'&&r.result==='AC'||result.value==='failed'&&r.result!=='AC')&&`${r.name} ${r.studentId}`.includes(search.value.trim()));if(result.value==='ac'&&scope.value==='latest'){const seen=new Set();visible=visible.filter(r=>{if(seen.has(r.studentId))return false;seen.add(r.studentId);return true;});}list.replaceChildren(pagination(visible,items=>submissionTable(items)));};result.onchange=scope.onchange=search.oninput=()=>{page=0;draw();};draw();
+        });cell.append(records,actions);
       });
-      if(token!==generation)return;
-      upsolve=upsolveCore.summarize(summary,contest,result.records,until,result.identities);
-
-      for(const o of $('#submission-scope').options)o.disabled=false;
-      $('#upsolve-time').textContent=`截至 ${new Date(until).toLocaleString()}`;
-      notice('');drawStandings();
-      if(activeStudent){activeStudent=upsolve.rows.find(m=>m.studentId===activeStudent.studentId)||activeStudent;$('#submission-scope').value=previousScope;submissionPage=0;drawStudentProblems();drawSubmissions();}
-    }catch(e){controller.abort();if(token===generation)notice(e.name==='AbortError'?'查询已取消或超时，未更新补题结果。':e.message,true);}
-    finally{clearTimeout(timeout);if(token===generation){upsolveController=null;$('[data-action=upsolve]').disabled=false;$('[data-action=cancel-upsolve]').hidden=true;}}
+    });out.append(panel('逐题统计',grid));
   }
-  $('#ranking-search').oninput=$('#ranking-order').onchange=()=>{rankingPage=0;drawStandings();};
-  $('#submission-scope').onchange=()=>{if(activeStudent)void showStudent(activeStudent,false,true);};
-  async function showStudent(member, force=false, preserveScope=false) {
-    if(!contest||!member.userId)return;
-    activeStudent=member;submissionPage=0;$('#student-panel').hidden=false;
-    $('#student-title').textContent=`${member.name} · ${isUpsolve()?'补题记录':'提交记录'}`;
-    $('#student-panel').scrollIntoView({behavior:'smooth',block:'start'});
-    if(!preserveScope){$('#submission-scope').value=isUpsolve()?'upsolve':'contest';$('#problem-filter').replaceChildren(option('all','全部题目'),...contest.problems.map(p=>option(p.id,p.label+' · '+p.title)));}
-    drawStudentProblems();
-    if($('#submission-scope').value==='upsolve'&&upsolve){drawSubmissions();return;}
-    await loadSubmissionCache(force);
-    drawSubmissions();
+  const chartColors=['#275ad6','#16765d','#a35caf','#ce8125','#0095a8','#cd5264','#6e6bd4','#628d24','#965f42','#2683ba','#a28b15','#b74e91','#437e67','#a45e36','#6b829b'];
+  let chartSerial=0;
+  function lineChart(labels,series,max=100,config={}){
+    const wrap=make('div',null,'chart-wrap');if(!labels.length){wrap.append(make('p','暂无已核实的比赛数据','empty'));return wrap;}
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');const bottom=config.tall?312:224,min=config.min||0;svg.setAttribute('viewBox',`0 0 800 ${bottom+56}`);if(config.tall)svg.classList.add('process-chart');svg.setAttribute('preserveAspectRatio','none');svg.classList.add('line-chart');svg.setAttribute('role','group');svg.setAttribute('tabindex','0');svg.setAttribute('aria-label','趋势图。悬停或点击查看，方向键切换数据点。');
+    const node=(name,attrs,text)=>{const n=document.createElementNS(svg.namespaceURI,name);for(const [k,v]of Object.entries(attrs))n.setAttribute(k,v);if(text!=null)n.textContent=text;return n;};
+    const x=i=>48+(labels.length>1?i/(labels.length-1):.5)*732,y=v=>bottom-(Number(v)-min)/(max-min)*(bottom-32);
+    for(let i=0;i<5;i++){const yy=32+i*(bottom-32)/4;svg.append(node('line',{x1:48,y1:yy,x2:780,y2:yy,stroke:'#e8edf2'}),node('text',{x:38,y:yy+4,'text-anchor':'end'},number(max-(max-min)*i/4,1)));}
+    svg.append(node('text',{x:48,y:16},config.unit||'%'));
+    const clipId='am-chart-'+(++chartSerial),defs=node('defs',{}),clip=node('clipPath',{id:clipId});clip.append(node('rect',{x:48,y:32,width:732,height:bottom-32}));defs.append(clip);svg.append(defs);
+    const lines=series.map((s,idx)=>{const g=node('g',{'clip-path':`url(#${clipId})`});let path='';s.values.forEach((v,i)=>{if(v==null){path+=' ';return;}path+=(i&&s.values[i-1]!=null?'L':'M')+x(i)+','+y(v)+' ';});g.append(node('path',{d:path,fill:'none',stroke:s.color||chartColors[idx%chartColors.length],'stroke-width':s.overall?2:2.3,'stroke-dasharray':s.overall?'6 5':''}));if(labels.length===1&&s.values[0]!=null)g.append(node('circle',{cx:x(0),cy:y(s.values[0]),r:4,fill:s.color||chartColors[idx%chartColors.length]}));svg.append(g);return g;});
+    labels.forEach((label,i)=>{if(labels.length>10&&i%Math.ceil(labels.length/8)!==0&&i!==labels.length-1)return;svg.append(node('text',{x:x(i),y:bottom+28,'text-anchor':'middle'},label.length>12?label.slice(0,11)+'…':label));});
+    svg.append(node('text',{x:414,y:bottom+51,'text-anchor':'middle'},config.axis||'比赛场次'));
+    const cursor=node('g',{'clip-path':`url(#${clipId})`});cursor.style.display='none';svg.append(cursor);const tip=make('div',null,'chart-tooltip');tip.hidden=true;tip.setAttribute('role','status');wrap.append(svg,tip);
+    let active=0;const enabled=series.map(()=>true);
+    const show=(i,clientX,clientY)=>{active=i;cursor.replaceChildren(node('line',{x1:x(i),x2:x(i),y1:25,y2:bottom,stroke:'#8494ab','stroke-width':1}));cursor.style.display='';
+      series.forEach((s,k)=>{if(enabled[k]&&s.values[i]!=null)cursor.append(node('circle',{cx:x(i),cy:y(s.values[i]),r:4,fill:s.color||chartColors[k%chartColors.length],stroke:'white','stroke-width':2}));});
+      const rows=config.rowsAt?config.rowsAt(i):series.map((s,k)=>({label:s.name,value:s.values[i],color:s.color||chartColors[k%chartColors.length],enabled:enabled[k]})).filter(r=>r.enabled).sort((a,b)=>(b.value??-Infinity)-(a.value??-Infinity)).map(r=>[r.label,number(r.value,3)+(config.suffix||''),r.color]);
+      tip.replaceChildren(make('strong',config.titleAt?config.titleAt(i):labels[i]));for(const [label,value,color]of rows){const row=make('div',null,'tooltip-row'),name=make('span',label);if(color){const dot=make('i');dot.style.background=color;name.prepend(dot);}row.append(name,make('b',value));tip.append(row);}tip.hidden=false;
+      const rect=svg.getBoundingClientRect(),px=clientX??rect.left+x(i)/800*rect.width,py=clientY??rect.top+50;tip.style.left=Math.max(12,Math.min(px+18,window.innerWidth-tip.offsetWidth-16))+'px';tip.style.top=Math.max(12,Math.min(py+16,window.innerHeight-tip.offsetHeight-16))+'px';
+    };
+    svg.onpointermove=svg.onpointerdown=e=>{const r=svg.getBoundingClientRect();show(Math.max(0,Math.min(labels.length-1,Math.round(((e.clientX-r.left)/r.width*800-48)/732*(labels.length-1)))),e.clientX,e.clientY);};
+    const hide=()=>{tip.hidden=true;cursor.style.display='none';};svg.onpointerleave=hide;svg.onblur=hide;svg.onfocus=()=>show(active);svg.onkeydown=e=>{if(['ArrowLeft','ArrowRight','Home','End','Escape'].includes(e.key)){e.preventDefault();if(e.key==='Escape')hide();else show(e.key==='Home'?0:e.key==='End'?labels.length-1:Math.max(0,Math.min(labels.length-1,active+(e.key==='ArrowLeft'?-1:1))));}};
+    if(series.length>1){const legend=make('details',null,'chart-legend');legend.append(make('summary',`图线开关 · ${series.length} 条`));const toggles=make('div',null,'filters');series.forEach((s,i)=>{const label=make('label'),check=make('input');check.type='checkbox';check.checked=true;label.style.color=s.color||chartColors[i%chartColors.length];label.append(check,document.createTextNode(s.name));check.onchange=()=>{enabled[i]=check.checked;lines[i].style.display=check.checked?'':'none';hide();};toggles.append(label);});legend.append(toggles);wrap.append(legend);}
+    return wrap;
   }
-  async function reviewContestSubmissions(){await loadSubmissionCache();if(!submissionCache)throw Error(submissionError||'无法读取比赛提交');return contestSubmissions();}
-  async function loadSubmissionCache(force=false) {
-    if(submissionRequest&&!force)return submissionRequest;
-    if(submissionCache&&!force)return;
-    if(!contest||!summary)return;
-    subController?.abort();const controller=new AbortController();subController=controller;const token=generation, cid=contest.id;
-    submissionCache=null;submissionError='';drawAccepted();drawSubmissions();
-    const timeout=setTimeout(()=>controller.abort(),45000);
-    submissionRequest=(async()=>{try {
-      // Original Angular factory requests latest=0 for its initial complete submission feed.
-      const data=await readJson(`/api/contests/${cid}/submissions?latest=0`,controller.signal);
-      if(token!==generation||subController!==controller)return;
-      if(!Array.isArray(data))throw new Error('提交记录格式不匹配。');
-      // Discard non-roster users and judge detail/source fields immediately.
-      const ids=new Set(summary.rows.filter(m=>m.userId).map(m=>m.userId));
-      submissionCache=data.filter(s=>ids.has(String(s.creator_id??s.creator?.id))).map(s=>({id:s.id,creator_id:s.creator_id??s.creator?.id,problem_id:s.problem_id,result:s.result,lang:s.lang,score:s.score,created_at:s.created_at}));
-    }catch(e){if(token===generation&&subController===controller)submissionError=e.name==='AbortError'?'读取超时，请点击刷新重试。':e.message;}
-    finally{clearTimeout(timeout);if(subController===controller){subController=null;submissionRequest=null;drawSubmissions();drawAccepted();}}
-    })();
-    return submissionRequest;
+  function drawProcess(out){
+    if(!curveData)return;
+    const curves=curveData.curves,series=curves.map((c,i)=>({name:c.is_overall?'全体平均分':classLabel(c.klass),values:c.scores,overall:c.is_overall,color:c.is_overall?'#7c899b':chartColors[(i-1+chartColors.length)%chartColors.length]}));
+    const max=Math.max(10,Math.ceil(Math.max(...curves.flatMap(c=>c.scores))/10)*10),finals=curves.filter(c=>!c.is_overall&&c.member_count).map(c=>c.final_score),zoomMin=finals.length?Math.max(0,Math.floor((Math.min(...finals)-5)/5)*5):0;
+    const chart=make('div'),scale=select('curve-scale','纵轴范围',[['auto','自动'],['zoom','放大末段']]),tools=make('div',null,'chart-tools'),label=make('label','纵轴');label.append(scale);tools.append(label);
+    const draw=()=>chart.replaceChildren(lineChart(curveData.minutes.map(m=>m+' 分'),series,max,{tall:true,min:scale.value==='zoom'?zoomMin:0,unit:'平均分',axis:'比赛时间（分钟）',titleAt:i=>`第 ${curveData.minutes[i]} 分钟 · ${stamp(new Date(new Date(curveData.start_time+'+08:00').getTime()+curveData.minutes[i]*60000).toISOString())}`}));scale.onchange=draw;draw();
+    const ranking=make('aside',null,'curve-ranking');ranking.append(make('h3',`最新排名 · ${curves.filter(c=>!c.is_overall).length} 个班`));const ordered=curves.map((c,i)=>({...c,color:series[i].color})).filter(c=>!c.is_overall).sort((a,b)=>b.final_score-a.final_score);ordered.forEach((c,i)=>{const row=make('div',null,'ranking-row');if(c.klass===currentClass()?.name)row.classList.add('selected');const name=make('span',classLabel(c.klass));name.style.borderLeftColor=c.color;row.append(make('small',i+1),name,make('b',number(c.final_score,3)));ranking.append(row);});
+    const layout=make('div',null,'curve-layout');layout.append(chart,ranking);out.append(panel('比赛进程 · 班级平均分',tools,layout));
+    out.append(panel('班级对比',table(['班级','名册人数','参赛人数','均分','最高分','班级位次'],data.classes.map(c=>[classLabel(c.klass),c.member_count,c.participant_count,number(c.average_score),number(c.best_score),c.rank??'—']))));
   }
-  function drawSubmissions() {
-    if(!activeStudent)return;
-    const scope=$('#submission-scope').value;
-    if(scope!=='upsolve'&&!submissionCache){$('#submissions').replaceChildren(el('p',submissionError||'正在读取本场比赛的提交记录…',submissionError?'bad':'muted'));$('#submission-pager').replaceChildren();return;}
-    const filter=$('#result-filter').value;
-    const post=upsolve?.records||[];
-    const during=contestSubmissions();
-    const all=core.submissions(scope==='upsolve'?post:scope==='all'?[...post,...during]:during,activeStudent.userId), pending=s=>['WT','JG'].includes(s.result)||!s.result;
-    const rows=all.filter(s=>($('#problem-filter').value==='all'||String(s.problem_id)===$('#problem-filter').value)&&(filter==='all'||filter==='AC'&&s.result==='AC'||filter==='pending'&&pending(s)||filter==='failed'&&s.result!=='AC'&&!pending(s)));
-    submissionPage=Math.min(submissionPage,Math.max(0,Math.ceil(rows.length/30)-1));
-    $('#submissions').replaceChildren(table(['提交 ID','题目','结果','得分','语言','提交时间','代码','复核'],rows.slice(submissionPage*30,submissionPage*30+30).map(s=>{
-      const p=contest.problems.find(p=>p.id===String(s.problem_id));
-      const code=/^[1-9]\d*$/.test(String(s.id)) ? el('a','查看代码') : el('span','—');
-      if(code.tagName==='A'){code.href=accodingPath(`/submission/${s.id}`);code.target='_blank';code.rel='noopener noreferrer';code.setAttribute('aria-label',`查看提交 ${s.id} 的代码`);}
-      return [s.id,p?`${p.label} · ${p.title}`:String(s.problem_id),el('span',s.result||'待评测',s.result==='AC'?'ac':pending(s)?'pending':'bad'),s.score??'—',s.lang,new Date(s.created_at).toLocaleString(),code,button('查看复核',async()=>{await switchPane('review');await reviewPanel.openDetail(String(s.id));})];
-    })));
-    pager($('#submission-pager'),rows.length,submissionPage,page=>{submissionPage=page;drawSubmissions();});
+  function drawSemester(out){
+    if(!semesterData)return;const points=semesterData.trajectory.points,values=points.map(p=>p.average_score==null||!p.contest_max_score?null:100*p.average_score/p.contest_max_score);
+    out.append(panel('得分率',lineChart(points.map(p=>'第 '+p.ordinal+' 场'),[{name:'得分率',values}],100,{rowsAt:i=>{const p=points[i];return [['参赛均分 / 满分',number(p.average_score)+' / '+number(p.contest_max_score)],['得分率',number(values[i])+'%'],['参赛 / 名册',p.participant_count+' / '+p.member_count],['同课程班级位次',p.cohort_rank==null?'—':p.cohort_rank+' / '+p.cohort_size]];},titleAt:i=>points[i].contest_name})));
+    out.append(panel('学期班级对比',make('p',`${semesterData.summary.contest_count} 场比赛 · 按各场班级位次取平均`,'muted'),table(['班级','名册人数','有效场次','平均班级位次 ↑','最好位次','最差位次'],[...semesterData.summary.rows].sort((a,b)=>(a.average_rank??Infinity)-(b.average_rank??Infinity)).map(r=>[classLabel(r.klass),r.member_count,r.contests,number(r.average_rank,2),r.best_rank??'—',r.worst_rank??'—']))));
+    out.append(panel('比赛记录',table(['比赛','参赛均分 / 满分','得分率','参赛人数','班级位次'],points.map((p,i)=>[p.contest_name,number(p.average_score)+' / '+number(p.contest_max_score),values[i]==null?'—':number(values[i])+'%',p.participant_count,p.cohort_rank==null?'—':p.cohort_rank+' / '+p.cohort_size]))));
   }
-  function drawPreview() {
-    preview=null;$('[data-action="create"]').disabled=true;
-    try {preview=core.roster(sheets[Number($('#sheet').value)].rows);
-      $('#preview').replaceChildren(el('p',`共 ${preview.members.length} 人。${preview.warnings.length?` ${preview.warnings.length} 条提示：${preview.warnings.slice(0,5).join('；')}`:''}`),table(['学号','姓名','班级'],preview.members.slice(0,5).map(m=>[m.studentId,m.name,m.group])));
-      $('[data-action="create"]').disabled=false;
-    }catch(e){$('#preview').replaceChildren(el('p',e.message,'bad'));}
+  function submissionTable(rows){return table(['提交 ID','学生','题目','判定','分数','语言','时间','耗时 / 内存','代码'],rows.map(r=>[r.id,r.name||r.studentId||'—',data.problems.find(p=>String(p.problem_id)===String(r.problem_id))?.order_letter||r.problem_id,make('span',r.result,r.result==='AC'?'ac':'bad'),number(r.score),r.lang,stamp(r.created_at),`${r.time_cost??'—'} ms / ${r.memory_cost??'—'} KB`,link('查看代码',accodingPath('/submission/'+r.id))]));}
+  async function showStudent(m){if(!m)return;const version=++studentVersion,token=generation;$('#student-drawer').hidden=false;$('#student-title').textContent=m.name;$('#student-id').textContent=m.studentId+(m.userId?' · OJ '+m.userId:' · OJ 未匹配');const body=$('#student-body');body.replaceChildren(make('div','正在读取学生数据…','empty'));$('#close-student').focus();const result=await request('/students/'+m.studentId,{query:{...query(),contest_id:cid}});if(version!==studentVersion||token!==generation)return;const points=result.trajectory.points,ratios=points.map(p=>p.average_score==null||!p.contest_max_score?null:100*p.average_score/p.contest_max_score);
+    body.replaceChildren(panel('得分率',lineChart(points.map(p=>'第 '+p.ordinal+' 场'),[{name:m.name,values:ratios}],100,{titleAt:i=>points[i].contest_name,rowsAt:i=>{const p=points[i];return [['得分 / 满分',number(p.average_score)+' / '+number(p.contest_max_score)],['得分率',ratios[i]==null?'未参赛':number(ratios[i])+'%'],['分数位次（课程名册内）',p.rank_score==null?'—':p.rank_score+' / '+p.contest_participant_count],['OJ 名次（含罚时）',p.absolute_rank??'—'],['超越比例',p.percentile_score==null?'—':number(100*p.percentile_score)+'%']];}})));
+    const historyDetails=make('details');historyDetails.append(make('summary','查看历次成绩'),table(['比赛','得分 / 满分','得分率','分数位次（同分并列）','OJ 名次'],points.map((p,i)=>[p.contest_name,number(p.average_score)+' / '+number(p.contest_max_score),ratios[i]==null?'未参赛':number(ratios[i])+'%',p.rank_score==null?'—':p.rank_score+' / '+p.contest_participant_count,p.absolute_rank??'—'])));body.append(panel('',historyDetails));
+    const contestSelect=select('student-contest','学生比赛',contests.filter(c=>['verified','live'].includes(c.state)).map(c=>[c.id,c.title]));contestSelect.value=cid;const detail=panel('',contestSelect),records=make('div');detail.append(records);body.append(detail);
+    const load=async()=>{const current=contestSelect.value;const [detailData,history]=await Promise.all([request('/students/'+m.studentId,{query:{...query(),contest_id:current}}),request('/contests/'+current+'/submissions')]);if(version!==studentVersion||token!==generation||current!==contestSelect.value)return;const problemSelect=select('student-problem','学生提交题目',[['','全部题目'],...(detailData.problems||[]).map(p=>[p.problem_id,p.order_letter+' · '+p.title])]);const resultSelect=select('student-result','学生提交结果',[['','全部判定'],['AC','通过'],['failed','未通过']]),list=make('div');const draw=()=>{const rows=history.submissions.filter(r=>r.studentId===m.studentId&&(!problemSelect.value||String(r.problem_id)===problemSelect.value)&&(!resultSelect.value||(resultSelect.value==='AC'?r.result==='AC':r.result!=='AC')));list.replaceChildren(pagination(rows,items=>table(['提交 ID','题目','判定','分数','语言','耗时','内存','时间','操作'],items.map(r=>[r.id,r.problem_id,r.result,number(r.score),r.lang,(r.time_cost??'—')+' ms',(r.memory_cost??'—')+' KB',stamp(r.created_at),makeStudentActions(r,current,m)]))));};const tools=make('div',null,'toolbar');tools.append(problemSelect,resultSelect);records.replaceChildren(table(['题目','最终判定','得分 / 满分'],(detailData.problems||[]).map(p=>[p.order_letter+' · '+p.title,p.result_label||'未提交',number(p.score)+' / '+number(p.max_score)])),tools,list);problemSelect.onchange=resultSelect.onchange=()=>{page=0;draw();};draw();};contestSelect.onchange=()=>run(load);if(cid)await load();
   }
-  $('#file').onchange=async()=>{
-    preview=null;sheets=[];$('#preview').replaceChildren();$('#sheet').replaceChildren();$('#sheet').disabled=true;$('[data-action="create"]').disabled=true;
-    const file=$('#file').files[0];if(!file)return;
-    $('#preview').textContent='正在本地读取工作簿…';
-    try {const result=await readClassWorkbook(file);if($('#file').files[0]!==file)return;sheets=result;
-      $('#sheet').replaceChildren(...sheets.map((s,i)=>option(String(i),s.name)));$('#sheet').disabled=false;
-      const index=sheets.findIndex(s=>{try{core.roster(s.rows);return true;}catch{return false;}});$('#sheet').value=String(Math.max(0,index));
-      $('#class-name').value=file.name.replace(/\.xlsx?$/i,'');drawPreview();
-    }catch(e){if($('#file').files[0]===file)$('#preview').textContent=e.message;}
-  };
-  $('#sheet').onchange=drawPreview;
-  $('#class-select').onchange=()=>{currentId=$('#class-select').value;resetContest();drawClasses();};
-  $('#contest-select').onchange=()=>{$('#contest-id').value='';resetContest();drawClasses();};
-  $('#contest-id').oninput=()=>{resetContest();drawClasses();};
-  $('#search').oninput=$('#member-filter').onchange=()=>{memberPage=0;drawMembers();};
-  $('#result-filter').onchange=$('#problem-filter').onchange=()=>{submissionPage=0;drawSubmissions();};
-  $('#accepted-problem').onchange=()=>{activeStudent=null;$('#student-panel').hidden=true;void showAccepted();};
-  $('#accepted-search').oninput=$('#accepted-mode').onchange=()=>{acceptedPage=0;drawAccepted();};
-  function showDialog(title,text,value,action){$('#dialog-title').textContent=title;$('#dialog-text').textContent=text;$('#dialog-input').hidden=value===null;$('#dialog-input').value=value||'';dialogAction=action;$('#confirm-dialog').showModal();if(value!==null)$('#dialog-input').focus();}
-  root.addEventListener('click',event=>{
-    const action=event.target.closest('[data-action]')?.dataset.action;if(!action)return;
-    try {
-      if(action==='close')closeClasses();
-      if(action==='import'){$('#import-panel').hidden=false;$('#file').focus();}
-      if(action==='cancel-import')$('#import-panel').hidden=true;
-      if(action==='create'){
-        const name=$('#class-name').value.trim();if(!preview||!name)throw new Error('请填写班级名称并选择有效名册。');
-        const c={id:crypto.randomUUID(),name,members:preview.members,createdAt:new Date().toISOString()};persist([...classes,c]);currentId=c.id;resetContest();drawClasses();$('#import-panel').hidden=true;notice(`已创建“${name}”，共 ${c.members.length} 名学生，已保存在本机。`);
-      }
-      if(action==='rename'&&selected()){const id=currentId;showDialog('重命名班级','请输入新名称。',selected().name,value=>{if(!value.trim())throw new Error('班级名称不能为空。');persist(classes.map(c=>c.id===id?{...c,name:value.trim()}:c));drawClasses();});}
-      if(action==='delete'&&selected()){const id=currentId;showDialog('删除本地班级',`删除“${selected().name}”的本地名册？此操作不会修改 OJ。`,null,()=>{persist(classes.filter(c=>c.id!==id));resetContest();drawClasses();notice('已删除本地班级。');});}
-      if(action==='dialog-cancel')$('#confirm-dialog').close();
-      if(action==='dialog-confirm'){dialogAction?.($('#dialog-input').value);$('#confirm-dialog').close();dialogAction=null;}
-      if(action==='export'&&selected()){
-        const cell=v=>'"'+String(/^[=+@\-\t\r]/.test(String(v))?"'"+v:v).replaceAll('"','""')+'"';
-        const csv='\ufeff'+[['学号','姓名','班级'],...selected().members.map(m=>[m.studentId,m.name,m.group])].map(r=>r.map(cell).join(',')).join('\r\n');
-        const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),a=el('a');a.href=url;a.download=selected().name.replace(/[\\/:*?"<>|]/g,'_')+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
-      }
-      if(action==='export-score')exportScore();
-      if(action==='load'||action==='refresh')void loadContest();
-      if(action==='refresh-submissions'&&activeStudent){if($('#submission-scope').value!=='contest')void loadUpsolve();else void showStudent(activeStudent,true,true);}
-      if(action==='upsolve')void loadUpsolve();
-      if(action==='refresh-accepted')void showAccepted(true);
-      if(action==='review-problem')void openProblemReview();
-      if(action==='close-problem-review'){problemReviewPanel.setActive(false);$('#problem-review-page').hidden=true;}
-      if(['contest-tab','upsolve-tab','review-tab'].includes(action)){if(action==='review-tab')reviewPanel.setProblemScope(null);switchPane(action.replace('-tab',''));}
-      if(action==='cancel-upsolve')upsolveController?.abort();
-      if(action==='close-student'){$('#student-panel').hidden=true;activeStudent=null;}
-    }catch(e){notice(e.message,true);}
-  });
-  drawClasses();
-  $('.launch').onclick=()=>{opener=document.activeElement;previousOverflow=document.body.style.overflow;document.body.style.overflow='hidden';$('.overlay').hidden=false;drawClasses();$('[data-action="close"]').focus();void discoverContests();if(storageError)notice(storageError,true);};
-  root.addEventListener('keydown',event=>{
-    if(event.key==='Escape'&&!$('#confirm-dialog').open)closeClasses();
-    if(event.key==='Tab'&&!$('.overlay').hidden&&!$('#confirm-dialog').open){const controls=[...$('.overlay').querySelectorAll('button,input,select,a[href]')].filter(e=>!e.disabled&&e.getClientRects().length);const first=controls[0],last=controls.at(-1);if(event.shiftKey&&root.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&root.activeElement===last){event.preventDefault();first?.focus();}}
-  });
-  window.addEventListener('storage',event=>{if(event.key===key){notice('其他页面修改了班级名册，请刷新页面后继续，避免覆盖。',true);storageError='请刷新页面，载入其他页面更新后的班级名册。';}});
-  if(typeof GM_addValueChangeListener==='function')GM_addValueChangeListener(key,(_key,_old,_new,remote)=>{
-    if(remote){storageError='其他页面修改了班级名册，请刷新页面后继续，避免覆盖。';notice(storageError,true);}
-  });
+  function makeStudentActions(r,current,m){const actions=make('div',null,'actions');actions.append(link('查看代码',accodingPath('/submission/'+r.id)),button('测试点',async()=>{const result=await request('/students/'+m.studentId+'/test-points',{query:{...query(),contest_id:current,problem_id:r.problem_id}});const record=result.submissions.find(s=>String(s.submit_id)===String(r.id));const detail=make('details');detail.open=true;detail.append(make('summary','提交 '+r.id+' · 测试点'),table(['测试点','结果','耗时','内存'],(record?.test_points||[]).map(p=>[p.position,p.label,p.time_ms+' ms',p.memory_kb+' KB'])));actions.replaceChildren(detail);}));return actions;}
+  function drawUpsolve(out){const tools=make('div',null,'toolbar'),until=make('input');until.type='datetime-local';until.setAttribute('aria-label','补题截止时间');const order=select('ranking-order','补题排序',[['upsolved','按赛后补过排序'],['total','按累计通过排序']]),search=make('input');search.type='search';search.placeholder='搜索姓名、学号';search.setAttribute('aria-label','搜索补题学生');const box=panel('补题排行榜'),rows=make('div');const load=button('更新排行榜',async()=>{if(!data)throw Error('请先选择已同步比赛');const c=modernContest(),end=until.value?contestCore.time(until.value+':00'):Date.now();if(end<c.end||end>Date.now())throw Error('截止时间须在比赛结束后、当前时间之前');upsolveController?.abort();const ctl=new AbortController(),token=generation;upsolveController=ctl;load.disabled=true;try{const result=await upsolveReader.read(c,reviewSummary(),end,ctl.signal,p=>notice(`正在查询补题 · ${p.finished}/${p.total} 题 · ${p.pages} 页`));if(token!==generation)return;upsolve=upsolveCore.summarize(reviewSummary(),c,result.records,end,result.identities);notice('');draw();}finally{if(token===generation)load.disabled=false;}},'primary');load.disabled=!data;tools.append(until,order,search,load);box.append(tools,rows);const draw=()=>{if(!upsolve){rows.replaceChildren(make('div','设置截止时间后更新排行榜','empty'));return;}const list=upsolveCore.standings(upsolve.rows,order.value).filter(m=>`${m.studentId} ${m.name}`.toLowerCase().includes(search.value.toLowerCase()));rows.replaceChildren(make('p','截至 '+stamp(new Date(upsolve.until).toISOString()),'muted'),pagination(list,items=>table(['排名','学号','姓名','赛后补过','累计通过',...data.problems.map(p=>p.order_letter),'操作'],items.map(m=>[m.ranking,m.studentId,m.name,m.upsolved,m.total,...m.problems.map(p=>p.status==='upsolved'?link('补过',accodingPath('/submission/'+p.first.id)):p.status==='during'?'赛内 AC':'—'),button('查看学生',()=>showStudent(m),'link')]))));};order.onchange=search.oninput=()=>{page=0;draw();};draw();out.append(box);}
+  async function project(){if(!data)return;const box=$('#projection');box.hidden=false;const draw=()=>{const head=make('div',null,'projection-header');head.append(make('h1',data.name),button('退出投屏',closeProjection));box.replaceChildren(head,tag('同步于 '+stamp(data.syncedAt)),summaryCards(),problemBars());};draw();await box.requestFullscreen?.();projectTimer=setInterval(()=>run(async()=>{const token=generation;const next=await request('/contests/'+cid);if(token!==generation)return;data=next;draw();}),30000);}
+  function closeProjection(){clearInterval(projectTimer);projectTimer=null;$('#projection').hidden=true;if(document.fullscreenElement===host||document.fullscreenElement===null&&root.fullscreenElement)document.exitFullscreen?.();}
+  function close(){closeProjection();reset();$('.overlay').hidden=true;document.body.style.overflow=previousOverflow;opener?.focus();}
+  $('.launch').onclick=()=>{opener=document.activeElement;previousOverflow=document.body.style.overflow;document.body.style.overflow='hidden';$('.overlay').hidden=false;$('#close-workspace').focus();run(connectExisting);};
+  $('#close-workspace').onclick=close;$('#connection-button').onclick=showConnection;$('#cancel-connect').onclick=()=>$('#connection').hidden=true;
+  $('#connection form').onsubmit=e=>{e.preventDefault();run(async()=>{const submit=e.target.querySelector('[type=submit]');submit.disabled=true;try{await client.connect($('#service-url').value,$('#oj-account').value,$('#oj-password').value);$('#oj-password').value='';await connectExisting();}finally{submit.disabled=false;}});};
+  $('#course-select').onchange=()=>{course=$('#course-select').value;classId=cid='';run(loadScope);};$('#class-type').onchange=()=>{type=$('#class-type').value;classId='';run(loadScope);};$('#class-select').onchange=()=>{classId=$('#class-select').value;run(loadScope);};$('#contest-select').onchange=()=>{cid=$('#contest-select').value;reset();save();run(loadPage);};
+  $('#include-retake').onchange=()=>{includeRetake=$('#include-retake').checked;run(loadScope);};$('#include-special').onchange=()=>{includeSpecial=$('#include-special').checked;run(loadScope);};$('#refresh-data').onclick=()=>run(connectExisting);
+  $('#close-student').onclick=()=>{studentVersion++;$('#student-drawer').hidden=true;};$('#student-drawer').onclick=e=>{if(e.target===$('#student-drawer'))$('#close-student').click();};$('#project-data').onclick=()=>run(project);
+  $('#export-data').onclick=()=>run(async()=>{const blob=await request('/export/'+(mode==='semester'?'semester':'contest'),{query:{...query(),contest_id:cid},blob:true});const url=URL.createObjectURL(blob),a=link('下载',url);a.download=(currentClass()?.name||currentCourse()?.name)+(mode==='semester'?'-学期分析':'-'+data.name)+'.xlsx';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
+  root.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!$('#projection').hidden)closeProjection();else if(!$('#student-drawer').hidden)$('#close-student').click();else close();}if(e.key==='Tab'&&!$('.overlay').hidden){const scope=!$('#student-drawer').hidden?$('#student-drawer'):$('.overlay');const controls=[...scope.querySelectorAll('button,input,select,a[href],summary')].filter(n=>!n.disabled&&n.getClientRects().length),first=controls[0],last=controls.at(-1);if(e.shiftKey&&root.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&root.activeElement===last){e.preventDefault();first.focus();}}});
+  document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&projectTimer)closeProjection();});
+  options($('#class-select'),[['','未连接教学服务']],'');$('#workspace').hidden=true;
 }

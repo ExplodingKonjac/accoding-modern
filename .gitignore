@@ -4,3 +4,5 @@ preview.png
 local-*.png
 *.log
 .env*
+
+preview/accoding-modern.preview.user.js

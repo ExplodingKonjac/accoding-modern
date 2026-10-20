@@ -22,7 +22,7 @@ function mountUpdateNotice(version) {
     const button=document.createElement('button');button.type='button';button.textContent='检查更新';button.dataset.action='check-script-update';
     feedback=document.createElement('span');feedback.setAttribute('role','status');feedback.style.cssText='font-size:13px;color:#52647e;margin-left:8px';
     button.onclick=async()=>{button.disabled=true;button.textContent='正在检查…';feedback.textContent=`当前 ${version} · 正在联网检查`;try{show(await checker.check(true),true);}finally{button.disabled=false;button.textContent='检查更新';}};
-    classRoot.querySelector('header .tag').after(button);
+    classRoot.querySelector('#connection .actions').prepend(button);
     button.after(feedback);
   }
   void checker.check().then(result=>show(result,false));
