@@ -15,7 +15,7 @@ function environment(){
   function client(){
     const context=vm.createContext({URL,Response,Map,Promise,DOMException,Error,JSON,Object,String,Date:class extends Date{static now(){return state.now;}},location:{origin,href:origin+'/contest/index'},caches,document:{},
       GM_getValue:(key,fallback)=>storage.get(key)||fallback,GM_setValue:(key,value)=>storage.set(key,value),
-      accodingPath:path=>path,accodingPagePath:url=>url.pathname,
+      accodingPath:path=>path,accodingPagePath:url=>url.pathname,createContestCore:()=>({decode:value=>value}),
       reviewAccount:()=>state.loggedIn?{userId:state.userId}:null,
       DOMParser:class{parseFromString(){return groupDocument([[state.userId,'当前账号的组']],state.loggedIn);}},
       fetch:async(url,options)=>{calls.push({url:String(url),options});return state.fail?Response.json({detail:'读取失败'},{status:500}):Response.json({n:calls.length});}});
@@ -49,4 +49,12 @@ test('parallel reads share one request and failed reads can be retried',async()=
   const e=environment(),client=e.client();await Promise.all([client.request('/bootstrap'),client.request('/bootstrap')]);assert.equal(e.calls.length,1);
   e.state.fail=true;await assert.rejects(client.request('/semester'),/读取失败/);
   e.state.fail=false;await client.request('/semester');assert.equal(e.calls.length,3);
+});
+
+test('live OJ reads bypass both caches and replace the cached rank',async()=>{
+  const e=environment(),client=e.client(),path='/api/contests/1326/rank';
+  assert.equal((await client.oj(path)).n,1);assert.equal((await e.client().oj(path)).n,1);
+  assert.equal((await client.oj(path,undefined,true)).n,2);assert.equal((await client.oj(path)).n,2);
+  assert.equal((await e.client().oj(path)).n,2);assert.equal(e.calls.length,2);
+  assert.equal(e.calls[1].options.credentials,'same-origin');assert.equal(e.calls[1].options.cache,'no-store');
 });

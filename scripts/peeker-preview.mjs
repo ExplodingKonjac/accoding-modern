@@ -27,8 +27,13 @@ const server=createServer(async(req,res)=>{
       const response=await fetch(agent+'/api/teaching/submission-page',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(fields)});
       res.writeHead(response.status,{'Content-Type':'text/html; charset=utf-8'});res.end(await response.text());return;
     }
+    if(/^\/group\/\d+\/manage\/contest$/.test(url.pathname)||/^\/api\/contests\/\d+(?:\/rank)?$/.test(url.pathname)){
+      const token=(await readFile(agentRoot+'/session-token','utf8')).trim();
+      const response=await fetch(agent+'/api/teaching/oj-read',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({path:url.pathname})});
+      res.writeHead(response.status,{'Content-Type':response.headers.get('content-type')||'text/html'});res.end(Buffer.from(await response.arrayBuffer()));return;
+    }
     if(url.pathname.startsWith('/teaching/')){
-      const response=await fetch(agent+url.pathname+url.search,{method:req.method,headers:{...req.headers,host:'127.0.0.1:18798',origin:agent},body:['GET','HEAD'].includes(req.method)?undefined:req,duplex:'half'});
+      const response=await fetch(agent+url.pathname+url.search,{method:req.method,headers:{...req.headers,host:'127.0.0.1:18798',origin:agent,'accept-encoding':'identity'},body:['GET','HEAD'].includes(req.method)?undefined:req,duplex:'half'});
       res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));return;
     }
     if(url.pathname==='/preview.user.js'){
