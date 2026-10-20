@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Accoding Modern · 北航 OJ 管理界面
 // @namespace    local.accoding.modern
-// @version      1.23.3
+// @version      1.23.4
 // @description  界面美化、教学工作台、按题筛选通过提交、页内代码复核、独立补题排行榜与提交查看、赛事统计看板、Markdown 兼容编辑与批量测试点选择，保留原站登录和操作。
 // @include      https://accoding.buaa.edu.cn:4000/*
 // @include      https://accoding-4000.e1.buaa.edu.cn/*
@@ -23,7 +23,7 @@
 
 (() => {
 'use strict';
-const ACCODING_MODERN_VERSION="1.23.3";
+const ACCODING_MODERN_VERSION="1.23.4";
 // Runtime URL compatibility for the direct site and BUAA VPN reverse proxy.
 // The VPN keeps the upstream app under /https-4000/<opaque-token>/, so absolute
 // root requests and pathname checks must be evaluated relative to that prefix.
@@ -770,7 +770,7 @@ function mountWorkspace() {
     const original=classRoot?.querySelector('#class-select');if(!original)return;
     const signature=[...original.options].map(o=>o.value+'='+o.textContent).join('|');
     if(selector.dataset.signature!==signature){selector.replaceChildren(...[...original.options].map(o=>new Option(o.textContent,o.value)));selector.dataset.signature=signature;}
-    selector.value=original.value;selector.disabled=!original.value;
+    selector.value=original.value;selector.disabled=original.disabled||original.options.length<2;
   };
   selector.onchange=()=>{const original=classRoot.querySelector('#class-select');original.value=selector.value;original.dispatchEvent(new Event('change'));};
   classes.append(selector,manage);actions.prepend(classes);syncClass();
@@ -2641,7 +2641,7 @@ function createAiReviewPanel(container,core,getContext,_readMetadata,options={})
   function reload(){return options.submissionId?openDetail(options.submissionId):refresh();}
   function stop(){saving=false;profileVersion++;profileController?.abort();detailResize?.disconnect();cursor=null;updateNavigation=()=>{};generation++;controller?.abort();detailVersion++;detailController?.abort();clearTimeout(timer);}
   function reset(){stop();similarityPanel.reset();scope=null;listDirty=false;listPosition=null;heading.textContent='代码复核';problem.disabled=false;counts=null;rows=[];runs=[];total=page=0;runId='';refill(runHistory,[['latest','最新完整运行']]);detail.hidden=true;detail.replaceChildren();progress.textContent='';message.textContent='读取比赛后，打开代码复核。';draw();}
-  function setProblemScope(next){stop();scope=next?{...next,submissionIds:[...next.submissionIds]}:null;page=0;state.value=options.problemList?'all':'queue';feature.value='all';problem.value=scope?.problemId||'all';problem.disabled=!!scope;heading.textContent=scope?`本题提交核查 · ${scope.title}`:'代码复核';detail.hidden=true;detail.replaceChildren();}
+  function setProblemScope(next){stop();scope=next?{...next,submissionIds:[...next.submissionIds]}:null;page=0;state.value=(options.problemList||next)?'all':'queue';feature.value='all';problem.value=scope?.problemId||'all';problem.disabled=!!scope;heading.textContent=scope?`本题提交核查 · ${scope.title}`:'代码复核';detail.hidden=true;detail.replaceChildren();}
   function query(c,offset=page*size,limit=size){return {contest_id:Number(c.contest.id),creator_ids:[...core.members(c.summary.rows).keys()],offset,limit,run_id:runId,...(scope?{problem_id:Number(scope.problemId),submission_ids:scope.submissionIds}:problem.value==='all'?{}:{problem_id:Number(problem.value)}),...(feature.value==='all'?{}:{label:feature.value}),...(options.problemList||state.value==='all'||state.value==='reviewed_no_ai'?{}:{review_queue_only:true}),...(state.value==='queue'||state.value==='all'?{}:{review_status:state.value})};}
   function fillRuns(values){const selection=core.selectReviewRun(values,runHistory.value);runs=selection.runs;const next=selection.selected?.run_id||'';if(next!==runId)page=0;runId=next;refill(runHistory,[['latest','最新完整运行'],...runs.map(run=>[run.run_id,`${run.publication_ready===false?'待同步 · ':'历史运行 · '}${run.run_id}`])],selection.explicit?runId:'latest');}
   function selectedRun(){return runs.find(run=>run.run_id===runId);}
@@ -3202,7 +3202,7 @@ function mountClassManager(core,contestCore,upsolveCore,upsolveReader,reviewCore
           }if(!buckets[key].length)names.append(make('span','无','muted'));box.append(names);columns.append(box);
         }
         cell.append(columns);if(!isCollected())return;const actions=make('div',null,'problem-actions'),records=make('details',null,'submission-details');records.append(make('summary','提交记录'));
-        actions.append(button('本题代码复核',async()=>{const all=await loadSubmissions();review.setProblemScope({problemId:String(p.problem_id),title:p.order_letter+' · '+p.title,submissionIds:all.filter(r=>String(r.problem_id)===String(p.problem_id)).map(r=>String(r.id))});await navigate('review');}));
+        actions.append(button('本题代码复核',async()=>{const all=await loadSubmissions(),chosen=core.problemReviewSubmissions(all,reviewSummary().rows,String(p.problem_id));review.setProblemScope({problemId:String(p.problem_id),title:p.order_letter+' · '+p.title,submissionIds:chosen.map(r=>String(r.submission.id)),attemptedUsers:new Set(chosen.map(r=>r.member.userId)).size});await navigate('review');}));
         records.ontoggle=()=>run(async()=>{if(!records.open||records.childElementCount>1)return;const token=generation,all=await loadSubmissions();if(token!==generation||!records.isConnected)return;const submissions=all.filter(r=>String(r.problem_id)===String(p.problem_id));
           const result=select('problem-result-'+p.problem_id,'提交结果',[['ac','通过提交'],['all','全部提交'],['failed','未通过提交']]),scope=select('problem-ac-'+p.problem_id,'通过提交范围',[['latest','每人最新 AC'],['all','全部 AC']]),search=make('input'),list=make('div'),tools=make('div',null,'toolbar');search.type='search';search.placeholder='姓名、学号';search.setAttribute('aria-label','搜索提交学生');tools.append(result,scope,search);records.append(tools,list);
           const draw=()=>{scope.hidden=result.value!=='ac';let visible=submissions.filter(r=>(result.value==='all'||result.value==='ac'&&r.result==='AC'||result.value==='failed'&&r.result!=='AC')&&`${r.name} ${r.studentId}`.includes(search.value.trim()));if(result.value==='ac'&&scope.value==='latest'){const seen=new Set();visible=visible.filter(r=>{if(seen.has(r.studentId))return false;seen.add(r.studentId);return true;});}list.replaceChildren(pagination(visible,items=>submissionTable(items)));};result.onchange=scope.onchange=search.oninput=()=>{page=0;draw();};draw();
@@ -3479,7 +3479,6 @@ function mountSubmissionReview(reviewCore) {
     const nav=el('nav',null,'submission-sections');nav.setAttribute('aria-label','提交检查区域');for(const [label,target]of [['本次代码',sourceCard],['前后差异',comparison],['人工复核',feedback]]){const item=button(label,()=>{for(const sibling of nav.children)sibling.removeAttribute('aria-current');item.setAttribute('aria-current','location');target.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});});if(!nav.children.length)item.setAttribute('aria-current','location');nav.append(item);}header.after(nav);
     const content=el('div',null,'submission-content');content.append(...wrap.childNodes);const rail=el('nav',null,'submission-rail');rail.setAttribute('aria-label','工作台导航');const brand=link('accoding','/');brand.className='submission-brand';brand.prepend(workspaceIcon('grid'));rail.append(brand);for(const [label,path]of [['题目管理','/problem/index'],['赛事管理','/contest/index'],['评测记录','/submission/index']]){const a=link(label,path);if(path==='/submission/index')a.setAttribute('aria-current','page');rail.append(a);}
     const topbar=el('header',null,'am-topbar');topbar.append(link('← 评测记录','/submission/index'),el('div',null,'am-top-actions'));wrap.append(rail,topbar,content);root.append(style,wrap);
-    const classRoot=document.querySelector('#am-classes')?.shadowRoot;if(classRoot&&!classRoot.querySelector('.class-rail'))layoutClassWorkspace(classRoot);
     original.before(host);const wasHidden=original.hidden;original.hidden=true;
     const panel=createAiReviewPanel(feedbackBody,reviewCore,()=>({generation:id}),async()=>[],{submissionId:id,feedbackOnly:true,ojText:raw});void panel.openDetail(id);
     let alive=true,controller=null,loaded=false;

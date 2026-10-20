@@ -23,7 +23,7 @@ function mountWorkspace() {
     const original=classRoot?.querySelector('#class-select');if(!original)return;
     const signature=[...original.options].map(o=>o.value+'='+o.textContent).join('|');
     if(selector.dataset.signature!==signature){selector.replaceChildren(...[...original.options].map(o=>new Option(o.textContent,o.value)));selector.dataset.signature=signature;}
-    selector.value=original.value;selector.disabled=!original.value;
+    selector.value=original.value;selector.disabled=original.disabled||original.options.length<2;
   };
   selector.onchange=()=>{const original=classRoot.querySelector('#class-select');original.value=selector.value;original.dispatchEvent(new Event('change'));};
   classes.append(selector,manage);actions.prepend(classes);syncClass();
