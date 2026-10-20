@@ -31,20 +31,16 @@ const server=createServer(async(req,res)=>{
       const response=await fetch(agent+url.pathname+url.search,{method:req.method,headers:{...req.headers,host:'127.0.0.1:18798',origin:agent},body:['GET','HEAD'].includes(req.method)?undefined:req,duplex:'half'});
       res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));return;
     }
-    if(url.pathname==='/preview-connect'){
-      const token=(await readFile(agentRoot+'/session-token','utf8')).trim();
-      const response=await fetch(agent+'/api/teaching/connect',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:'{}'});
-      res.writeHead(response.status,{'Content-Type':'application/json',...(response.headers.get('set-cookie')?{'Set-Cookie':response.headers.get('set-cookie')}:{})});res.end(await response.text());return;
-    }
     if(url.pathname==='/preview.user.js'){
       let script=await readFile(new URL('preview/accoding-modern.preview.user.js',root),'utf8');
+      script=script.replace('client.groups(controller.signal)',"client.request('/bootstrap',{signal:controller.signal}).then(b=>b.courses.map(c=>({id:c.groupId,name:c.name})))");
       script=script.replace('const ACCODING_MODERN_IS_APP = ACCODING_DIRECT_ORIGINS.has(location.origin) || Boolean(ACCODING_VPN_PREFIX);','const ACCODING_MODERN_IS_APP = true;');
       script=script.replace("function reviewFetch(url,options={}) {","function reviewFetch(url,options={}) { if(url.startsWith('https://muzermat.online:8443/oj-review-api/v4/'))return fetch('/review-api/'+url.slice('https://muzermat.online:8443/oj-review-api/v4/'.length),options);");
       res.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-store'});res.end(script);return;
     }
-    if(url.pathname==='/config.js'){res.writeHead(200,{'Content-Type':'text/javascript'});res.end("localStorage.setItem('accoding-modern.teaching.connection.v1',JSON.stringify({url:location.origin+'/teaching'}));");return;}
+    if(url.pathname==='/config.js'){res.writeHead(200,{'Content-Type':'text/javascript'});res.end("if(JSON.parse(localStorage.getItem('accoding-modern.teaching.connection.v1')||'{}').url!==location.origin+'/teaching')localStorage.setItem('accoding-modern.teaching.connection.v1',JSON.stringify({url:location.origin+'/teaching'}));");return;}
     if(url.pathname==='/start.js'){
-      res.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8'});res.end(`(async()=>{const r=await fetch('/preview-connect',{method:'POST'});const d=await r.json();if(!r.ok){document.body.textContent=d.detail;return;}localStorage.setItem('accoding-modern.teaching.connection.v1',JSON.stringify({url:location.origin+'/teaching'}));document.querySelector('#am-classes').shadowRoot.querySelector('.launch').click();})().catch(e=>document.body.textContent=e.message);`);return;
+      res.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8'});res.end("document.querySelector('#am-classes').shadowRoot.querySelector('.launch').click();");return;
     }
     res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});res.end(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OJ Modern · 教学工作台预览</title><style>body{margin:0;background:#f6f8fa;font-family:system-ui}body>p{padding:32px}</style></head><body><p>正在加载教学工作台…</p><script src="/config.js"></script><script src="/preview.user.js"></script><script src="/start.js"></script></body></html>`);
   }catch(error){res.writeHead(502,{'Content-Type':'application/json'});res.end(JSON.stringify({detail:error.message}));}
