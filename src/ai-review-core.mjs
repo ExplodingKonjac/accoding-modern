@@ -210,7 +210,7 @@ export function createAiReviewCore() {
         const packet=await request('/code-similarity/search',query,signal);
         if(packet.run_id!==query.run_id||packet.contest_id!==query.contest_id||packet.version!=='same-contest-peer-tokens-v1'||!Array.isArray(packet.records)||!Number.isInteger(packet.total)||packet.total<0||packet.records.length>query.limit)throw new Error('代码查重运行或返回格式不一致');
         if(query.pair_view&&(packet.pair_view!==true||!['pair_count','source_count','status_count'].every(key=>Number.isInteger(packet[key])&&packet[key]>=0)||packet.total!==packet.pair_count+packet.status_count||packet.records.some(r=>r.status==='matched'&&r.matches?.length!==1)))throw new Error('代码查重服务尚未提供按代码对合并的结果，请更新本地复核核心。');
-        for(const record of packet.records){validateSimilarity({...record,run_id:packet.run_id},query.contest_id);if(!query.creator_ids.includes(String(record.creator_id))||record.matches.some(m=>!query.creator_ids.includes(String(m.reference.creator_id)))||(query.problem_id!=null&&record.problem_id!==query.problem_id)||(query.submission_ids&&!query.submission_ids.includes(String(record.submission_id))))throw new Error('代码查重结果与当前班级或题目不一致');}
+        for(const record of packet.records){validateSimilarity({...record,run_id:packet.run_id},query.contest_id);if(!query.creator_ids.includes(String(record.creator_id))||(query.problem_id!=null&&record.problem_id!==query.problem_id)||(query.submission_ids&&!query.submission_ids.includes(String(record.submission_id))))throw new Error('代码查重结果与当前班级或题目不一致');}
         return packet;
       },
       async similarityDetail(id,runId,contestId,signal){

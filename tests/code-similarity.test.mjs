@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
 import {createAiReviewCore} from '../src/ai-review-core.mjs';
 
 const source={submission_id:'100',creator_id:'101',contest_id:1326,problem_id:7,code_hash:'a'.repeat(64),submitted_at:'2026-10-19T00:00:00Z'};
@@ -20,9 +22,9 @@ test('class, run and current submission bindings cannot be replaced',async()=>{
  const changed=structuredClone(packet);changed.records[0].creator_id='999';await assert.rejects(client(changed).api.similaritySearch(query),/班级/);
  await assert.rejects(client({...record,submission_id:'101'}).api.similarityDetail('100','local-peers',1326),/提交/);
 });
-test('both endpoints must belong to the selected class',async()=>{
+test('class anchor may match a peer outside the selected class',async()=>{
  const one={...query,creator_ids:['101']};
- await assert.rejects(client(packet).api.similaritySearch(one),/班级/);
+ assert.equal((await client(packet).api.similaritySearch(one)).records[0].matches[0].reference.creator_id,'102');
 });
 test('peer source verifies the different author against the same frozen run',async()=>{
  const {api,calls}=client(reference);await api.peerSource(reference,record);assert.ok(calls[0].url.includes('/runs/local-peers/sources/200'));
@@ -55,4 +57,10 @@ test('saving pair feedback uses the write session and its own endpoint',async()=
  },4);
  assert.equal((await api.saveSimilarityFeedback({...pair,status:'suspected',reason:note.reason},undefined,'reviewer-token')).feedback.id,1);
  await assert.rejects(api.saveSimilarityFeedback({...pair,status:'suspected',reason:' '}),/填写理由/);
+});
+
+test('similarity problem scope starts at E inclusive',()=>{
+ const context=vm.createContext({});vm.runInContext(readFileSync(new URL('../src/code-similarity.js',import.meta.url),'utf8'),context);
+ for(const label of ['A','B','C','D',''])assert.equal(context.codeSimilarityProblemAllowed({label}),false);
+ for(const label of ['E','F','Z','AA'])assert.equal(context.codeSimilarityProblemAllowed({label}),true);
 });

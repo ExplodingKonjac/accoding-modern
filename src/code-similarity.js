@@ -2,7 +2,7 @@ const similarityReviewLabels={ordinary:'无抄袭',uncertain:'存疑',suspected:
 
 function codeSimilarityProblemAllowed(problem){
   const label=String(problem?.label||'');
-  return /^[A-Z]+$/.test(label)&&[...label].reduce((n,c)=>n*26+c.charCodeAt(0)-64,0)>=3;
+  return /^[A-Z]+$/.test(label)&&[...label].reduce((n,c)=>n*26+c.charCodeAt(0)-64,0)>=5;
 }
 
 function mountSimilarityFeedback(target,record,match,core,client,{signal,valid,onSaved}){
@@ -66,20 +66,19 @@ function renderCodeSimilarity(target,record,core,client,{signal,valid=()=>true,g
   if(context.summary){
     const members=core.members(context.summary.rows||[]);
     if(!members.has(String(record.creator_id))){target.append(el('p','此提交不属于当前班级。'));return;}
-    const matches=record.matches.filter(m=>members.has(String(m.reference.creator_id)));
-    record={...record,matches,peer_count:new Set(matches.map(m=>String(m.reference.creator_id))).size,
-      status:record.status==='matched'&&!matches.length?'no_match':record.status};
+
   }
   if(!target.getRootNode().querySelector('style[data-similarity-style]')){
     const style=el('style',`.ar-similarity-snippets{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin:12px 0}.ar-similarity-snippets>div{min-width:0}.ar-similarity-snippets pre{font:12px/1.6 ui-monospace,monospace;background:#f7f9fc;padding:10px;border:1px solid #dce3ed;max-height:500px;overflow:auto;white-space:pre}.ar-similarity-editor textarea{display:block;box-sizing:border-box;width:100%;min-height:90px;font:inherit;padding:10px;border:1px solid #ccd9e9;border-radius:7px}.ar-similarity-history p{white-space:pre-wrap}.ar-similarity-match{margin:12px 0}.ar-similarity-match summary{cursor:pointer;min-height:44px;padding:10px;background:#edf3ff;border-radius:7px}@media(max-width:700px){.ar-similarity-snippets{grid-template-columns:minmax(0,1fr)}.ar-similarity-editor .ar-actions>select{flex-basis:100%}.ar-similarity-editor .ar-actions>button{min-width:110px;white-space:nowrap}}`);style.dataset.similarityStyle='1';target.append(style);
   }
   const statuses={out_of_scope:'本题未开放查重。',no_match:'未发现嫌疑代码。',too_short:'代码太短，未查重。',unsupported:'此提交暂不支持查重。'};
-  if(record.provided_tokens)target.append(el('p','已扣除题面提供的代码，仅比较其余部分。'));
-  if(record.status!=='matched'){target.append(el('p',record.status==='too_short'&&record.provided_tokens?'扣除题面代码后，剩余代码不足以可靠查重。':statuses[record.status]));return;}
+  const exclusions=[];if(record.provided_tokens)exclusions.push('题面代码');if(record.common_tokens)exclusions.push('通用输入输出及声明');if(record.formula_tokens)exclusions.push('题目固定公式');
+  if(exclusions.length)target.append(el('p','已扣除'+exclusions.join('、')+'，仅比较剩余实现。'));
+  if(record.status!=='matched'){target.append(el('p',record.status==='too_short'&&exclusions.length?'扣除通用部分后，剩余代码不足以可靠查重。':statuses[record.status]));return;}
   if(!pairView)target.append(el('p',`与 ${record.peer_count} 位同学的代码相似${record.peer_count>record.matches.length?`，显示前 ${record.matches.length} 份`:''}。`));
   for(const match of record.matches){
     const ref=match.reference,ctx=getContext(),members=core.members(ctx.summary?.rows||[]),member=members.get(String(ref.creator_id)),current=members.get(String(record.creator_id));
-    const currentName=current?.name||'用户 '+record.creator_id,peerName=member?.name||'用户 '+ref.creator_id;
+    const currentName=current?.name||record.creator_name||'用户 '+record.creator_id,peerName=member?.name||ref.name||'用户 '+ref.creator_id;
     const details=el('details');details.className='ar-similarity-match';
     details.append(el('summary',`${(match.similarity*100).toFixed(1)}% · ${`${currentName} ↔ ${peerName} · 查看代码对照`}`));
     details.append(el('p',`提交时间：${core.beijingTime(record.submitted_at)} / ${core.beijingTime(ref.submitted_at)}`));
@@ -162,13 +161,13 @@ function createCodeSimilarityPanel(container,core,client,getContext,getScope=()=
         ...(scope?{problem_id:Number(scope.problemId),submission_ids:scope.submissionIds.map(String)}:problem.value==='all'?{}:{problem_id:Number(problem.value)})};
       const packet=await client.similaritySearch(query,loadSignal);if(!valid())return;
       if(packet.total&&page*30>=packet.total){page=Math.floor((packet.total-1)/30);void load();return;}
-      status.textContent=`${packet.pair_count} 对嫌疑代码，涉及 ${packet.source_count} 份提交${show.value==='all'?` · 其他记录 ${packet.status_count} 份`:''}`;
+      status.textContent=`全场比较 · 本班涉及 ${packet.pair_count} 对嫌疑代码，涉及 ${packet.source_count} 份提交${show.value==='all'?` · 其他记录 ${packet.status_count} 份`:''}`;
       const members=core.members(ctx.summary.rows);
       for(const record of packet.records){
         const box=el('section');box.className='ar-similarity-record';const member=members.get(String(record.creator_id)),p=ctx.contest.problems.find(p=>String(p.id)===String(record.problem_id));
-        const title=`${member?.name||record.creator_id} · 提交 #${record.submission_id}`;
+        const title=`${member?.name||record.creator_name||record.creator_id} · 提交 #${record.submission_id}`;
         const ref=record.matches[0]?.reference,peer=ref&&members.get(String(ref.creator_id));
-        box.append(el('h3',ref?`${title} ↔ ${peer?.name||'用户 '+ref.creator_id} · 提交 #${ref.submission_id}`:title),el('p',p?`${p.label} · ${p.title}`:record.problem_id));
+        box.append(el('h3',ref?`${title} ↔ ${peer?.name||ref.name||'用户 '+ref.creator_id} · 提交 #${ref.submission_id}`:title),el('p',p?`${p.label} · ${p.title}`:record.problem_id));
         const content=el('div');box.append(content);list.append(box);
         renderCodeSimilarity(content,{...record,run_id:run.value},core,client,{signal,valid,getContext,pairView:true,onSaved:()=>void load()});
       }
