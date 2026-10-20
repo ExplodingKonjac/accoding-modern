@@ -10,10 +10,10 @@
   const style=document.createElement('style');style.id='am-ng-style';
   style.textContent=ACCODING_WORKSPACE_CSS;
   document.head.append(style);document.documentElement.classList.add('am-ng');
-  control.textContent='恢复原版外观';control.className='am-ng-reset';control.addEventListener('click',()=>toggle(true));
+  control.textContent='恢复原版外观';control.className='am-button am-ng-reset';control.addEventListener('click',()=>toggle(true));
   const enhance=()=>{
     const nav=document.querySelector('[ng-view]>nav .navbar-middle');
-    if(nav&&!control.isConnected){const li=document.createElement('li');li.append(control);nav.append(li);}
+    if(nav&&!control.isConnected){const li=document.createElement('li');li.className='am-ng-reset-item';li.append(control);nav.append(li);}
     // Keep original table nodes and all Angular bindings; only add a scroll container.
     for(const table of document.querySelectorAll('[ng-view]>.col-lg-10 table')){
       if(table.closest('.am-ng-table-wrap,.modal,.popover')||table.parentElement.closest('table'))continue;
