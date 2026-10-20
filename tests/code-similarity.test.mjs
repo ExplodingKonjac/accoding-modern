@@ -5,7 +5,7 @@ import {createAiReviewCore} from '../src/ai-review-core.mjs';
 const source={submission_id:'100',creator_id:'101',contest_id:1326,problem_id:7,code_hash:'a'.repeat(64),submitted_at:'2026-10-19T00:00:00Z'};
 const reference={...source,submission_id:'200',creator_id:'102',code_hash:'b'.repeat(64)};
 const record={...source,run_id:'local-peers',version:'same-contest-peer-tokens-v1',status:'matched',token_count:100,peer_count:1,matches:[{reference,similarity:.95,matched_tokens:95,snippets:[]}]};
-const query={run_id:'local-peers',contest_id:1326,creator_ids:['101'],offset:0,limit:30};
+const query={run_id:'local-peers',contest_id:1326,creator_ids:['101','102'],offset:0,limit:30};
 const packet={run_id:'local-peers',contest_id:1326,version:'same-contest-peer-tokens-v1',records:[record],total:1};
 function client(body,status=200){const calls=[];const api=createAiReviewCore().featureClient(()=>{throw Error('anonymous read must not inspect writer identity');},async(url,options)=>{calls.push({url,options});assert.equal(options.credentials,'omit');assert.equal(options.headers.Authorization,undefined);return {ok:status===200,status,json:async()=>body};},4);return {api,calls};}
 test('similarity is an independent anonymous branch, even when the record has no AI verdict',async()=>{
@@ -19,6 +19,10 @@ test('class, run and current submission bindings cannot be replaced',async()=>{
  await assert.rejects(client({...packet,run_id:'other'}).api.similaritySearch(query),/运行/);
  const changed=structuredClone(packet);changed.records[0].creator_id='999';await assert.rejects(client(changed).api.similaritySearch(query),/班级/);
  await assert.rejects(client({...record,submission_id:'101'}).api.similarityDetail('100','local-peers',1326),/提交/);
+});
+test('both endpoints must belong to the selected class',async()=>{
+ const one={...query,creator_ids:['101']};
+ await assert.rejects(client(packet).api.similaritySearch(one),/班级/);
 });
 test('peer source verifies the different author against the same frozen run',async()=>{
  const {api,calls}=client(reference);await api.peerSource(reference,record);assert.ok(calls[0].url.includes('/runs/local-peers/sources/200'));
