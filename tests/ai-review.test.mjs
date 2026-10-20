@@ -111,8 +111,8 @@ test('git-style line diff preserves both files and identifies unchanged lines',(
 
 test('every v4 read omits bearer credentials even after authenticated writes',async()=>{
   const calls=[],client=core.featureClient(()=>{throw Error('read must not inspect credentials');},async(url,opts)=>{calls.push({url,opts});return {ok:true,json:async()=>url.includes('/feedback/')?{latest:null,history:[]}:{} };},4);
-  await client.session();await client.profile('1',1299);await client.source('1','run-one');await client.feedback('1','a'.repeat(64),'run-one');await client.exportEvidence('run-one');await client.exportFeedback(1299);
-  assert.equal(calls.length,6);
+  await client.session();await client.source('1','run-one');await client.feedback('1','a'.repeat(64),'run-one');await client.exportEvidence('run-one');await client.exportFeedback(1299);
+  assert.equal(calls.length,5);
   for(const {url,opts} of calls){assert.equal(opts.headers.Authorization,undefined);assert.equal(opts.credentials,'omit');assert.doesNotMatch(url,/\/access\//);}
 });
 
@@ -200,9 +200,9 @@ test('new labels remove naming selectors but retain readable legacy runs',()=>{
 test('all v4 requests declare state protocol and source-scoped feedback preserves three states',async()=>{
   const calls=[],annotation={id:1,status:'uncertain',reason:'复查'},client=core.featureClient(()=>'token',async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({latest:annotation,history:[annotation]})};},4);
   assert.equal((await client.feedback('1','a'.repeat(64),'run')).latest.status,'uncertain');
-  await client.profile('11',1299);
+  assert.equal(client.profile,undefined);
   for(const {options} of calls)assert.equal(options.headers['X-Review-State-Protocol'],'2');
-  assert.match(calls[1].url,/\/profiles\/11\?site=.*&contest_id=1299/);
+  assert.ok(calls.every(({url})=>!url.includes('/profiles/')));
   const invalid=core.featureClient(()=>'token',async()=>({ok:true,json:async()=>({latest:{...annotation,status:'unknown'},history:[]})}),4);
   await assert.rejects(()=>invalid.feedback('1','a'.repeat(64),'run'),/格式无效/);
 });

@@ -232,7 +232,6 @@ export function createAiReviewCore() {
         validatePairFeedback(result.feedback,body);return result;
       },
       session:(signal,write=false)=>request('/feedback/session',null,signal,false,write),
-      profile:(creatorId,contestId,signal)=>request(`/profiles/${encodeURIComponent(creatorId)}?site=${encodeURIComponent('https://accoding.buaa.edu.cn:4000')}&contest_id=${encodeURIComponent(contestId)}`,null,signal),
       source:(id,runId,signal)=>request(`/runs/${encodeURIComponent(runId)}/sources/${encodeURIComponent(id)}`,null,signal),
       feedback:async(id,codeHash,runId,signal)=>feedbackPacket(await request(`/feedback/${encodeURIComponent(id)}?code_hash=${encodeURIComponent(codeHash)}&run_id=${encodeURIComponent(runId)}`,null,signal)),
       saveFeedback:(body,signal)=>{humanState(body.status);if(typeof body.reason!=='string'||!body.reason.trim())throw new Error('请填写核查理由');return request('/feedback',body,signal,false,true);},
